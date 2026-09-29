@@ -20,6 +20,13 @@ import {
   ImagePlus,
   Activity,
   CheckCircle2,
+  House,
+  Radio,
+  Search,
+  Heart,
+  MessageSquare,
+  Megaphone,
+  Sparkles,
 } from "lucide-react";
 const names = [
   "czarkills",
@@ -235,8 +242,11 @@ export default function Home() {
           <X size={15} />
         </div>
       )}
-      {view === "home" && (
-        <>
+      {view === "home" &&
+        (data.me ? (
+          <NetworkHome data={data} setView={setView} act={act} busy={busy} />
+        ) : (
+          <>
           <section className="hero">
             <div className="eyebrow">
               <span /> BLOOD STRIKE COMMUNITY LEAGUE
@@ -305,9 +315,8 @@ export default function Home() {
               <Standings teams={standings.slice(0, 4)} />
             </Panel>
           </section>
-          {data.me && <SocialStrip data={data} setView={setView} />}
-        </>
-      )}
+          </>
+        ))}
       {view === "standings" && (
         <Page
           title="LEAGUE STANDINGS"
@@ -383,6 +392,25 @@ export default function Home() {
           busy={busy}
         />
       )}
+      {data.me && (
+        <div className="mobile-dock">
+          {[
+            ["home", "Home", <House key="h" />],
+            ["fixtures", "Arena", <Swords key="a" />],
+            ["chat", "Chat", <MessageCircle key="c" />],
+            ["standings", "League", <Trophy key="l" />],
+            ["dashboard", "Profile", <UserRound key="p" />],
+          ].map(([key, label, icon]: any) => (
+            <button
+              key={key}
+              className={view === key ? "active" : ""}
+              onClick={() => setView(key)}
+            >
+              {icon}<span>{label}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <footer>
         <b>STRIKE LEAGUE</b>
         <span>Unofficial Blood Strike community competition</span>
@@ -391,6 +419,96 @@ export default function Home() {
     </main>
   );
 }
+
+function NetworkHome({ data, setView, act, busy }: any) {
+  const [post, setPost] = useState("");
+  const [feed, setFeed] = useState("all");
+  const next = data.fixtures.find((f: Fixture) => f.status !== "completed");
+  const myTeam = data.teams.find((t: Team) => t.id === data.me.team_id);
+  const posts = data.messages
+    .filter((m: any) => feed === "team" ? m.channel === "team" : m.channel === "public")
+    .slice(0, 8);
+  const send = () => {
+    if (!post.trim()) return;
+    act("sendMessage", { channel: feed === "team" ? "team" : "public", content: post });
+    setPost("");
+  };
+  return (
+    <section className="network-shell">
+      <div className="network-main">
+        <div className="network-welcome">
+          <div><small>CONNECTED TO STRIKE NETWORK</small><h1>Good evening, <em>{data.me.display_name || data.me.username}</em></h1></div>
+          <button aria-label="Search"><Search /></button>
+        </div>
+
+        <article className="next-battle">
+          <div className="battle-noise" />
+          <div className="battle-label"><Radio /> NEXT MATCH</div>
+          {next ? <>
+            <div className="battle-clash">
+              <div><span>{next.home_name || "USER & USER"}</span><small>HOME SQUAD</small></div>
+              <strong>VS</strong>
+              <div><span>{next.away_name || "USER & USER"}</span><small>AWAY SQUAD</small></div>
+            </div>
+            <div className="battle-meta"><Countdown date={next.scheduled_at} /><span>{next.scheduled_at ? new Date(next.scheduled_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "DATE TO BE ANNOUNCED"}</span></div>
+          </> : <div className="battle-empty"><Sparkles /><b>Your next battle is being prepared</b><span>Watch this space, striker.</span></div>}
+          <button className="battle-open" onClick={() => setView("fixtures")}>OPEN ARENA <ChevronRight /></button>
+        </article>
+
+        <div className="quick-post">
+          <Avatar player={data.me} size={44} />
+          <button onClick={() => setView("chat")}>What&apos;s on your mind, striker?</button>
+          <ImagePlus />
+        </div>
+
+        <div className="feed-tabs">
+          {[["all", "All posts"], ["team", "My team"], ["league", "League"]].map(([k,l]) => <button key={k} className={feed === k ? "active" : ""} onClick={() => setFeed(k)}>{l}</button>)}
+        </div>
+
+        <div className="network-feed">
+          {feed === "league" ? <LeaguePost data={data} setView={setView} /> : posts.length ? posts.map((m: any) => (
+            <article className="feed-post" key={m.id}>
+              <Avatar player={m} size={43} />
+              <div className="post-body">
+                <div className="post-head"><b>{m.sender_name}</b><span>@{m.username} · {new Date(m.created_at).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"})}</span><i /></div>
+                <p>{m.content}</p>
+                <div className="post-actions"><button><Heart /> React</button><button onClick={() => setView("chat")}><MessageSquare /> Reply</button><button><Radio /> Live</button></div>
+              </div>
+            </article>
+          )) : <LeaguePost data={data} setView={setView} />}
+        </div>
+
+        <div className="inline-composer">
+          <input value={post} onChange={e => setPost(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder={feed === "team" ? "Message your duo..." : "Post to the league..."} />
+          <button disabled={busy || !post.trim()} onClick={send}><Send /></button>
+        </div>
+      </div>
+
+      <aside className="network-rail">
+        <RailTitle icon={<Bell />} title="Notifications" action={() => {}} />
+        <div className="rail-list">
+          {data.notifications.slice(0, 3).map((n: any) => <article key={n.id} className={!n.is_read ? "new" : ""}><span className="rail-icon"><Megaphone /></span><div><b>{n.title}</b><p>{n.body}</p><small>{new Date(n.created_at).toLocaleDateString()}</small></div></article>)}
+          {!data.notifications.length && <p className="rail-empty">You&apos;re all caught up.</p>}
+        </div>
+        <RailTitle icon={<Users />} title="Online now" action={() => setView("chat")} />
+        <div className="online-grid">{data.onlinePlayers.slice(0, 6).map((p: any) => <button key={p.id} onClick={() => setView("chat")}><Avatar player={p} size={38} /><span><b>{p.display_name || p.username}</b><small>Online</small></span><i /></button>)}</div>
+        <div className="duo-card"><small>YOUR DUO</small><h3>{myTeam?.name || "Find your teammate"}</h3><p>{myTeam ? `${myTeam.player1} + ${myTeam.player2}` : "The arena is better with backup."}</p><button onClick={() => setView("dashboard")}>{myTeam ? "TEAM HQ" : "BUILD A TEAM"}<ChevronRight /></button></div>
+      </aside>
+    </section>
+  );
+}
+
+function Countdown({ date }: { date: string | null }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 60000); return () => clearInterval(id); }, []);
+  if (!date) return <b>TBA</b>;
+  const diff = Math.max(0, new Date(date).getTime() - now), days = Math.floor(diff / 86400000), hours = Math.floor(diff % 86400000 / 3600000), mins = Math.floor(diff % 3600000 / 60000);
+  return <b>{String(days).padStart(2,"0")}D&nbsp; {String(hours).padStart(2,"0")}H&nbsp; {String(mins).padStart(2,"0")}M</b>;
+}
+function LeaguePost({ data, setView }: any) {
+  return <article className="feed-post league-post"><span className="league-badge"><Trophy /></span><div className="post-body"><div className="post-head"><b>Strike League</b><span>Official transmission</span><i /></div><h3>SEASON 01 IS LIVE</h3><p>Form your duo, get match-ready and climb the table. Every battle writes the story.</p><button className="post-cta" onClick={() => setView("standings")}>VIEW LEAGUE TABLE <ChevronRight /></button></div></article>;
+}
+function RailTitle({ icon, title, action }: any) { return <div className="rail-title"><span>{icon}{title}</span><button onClick={action}>VIEW ALL</button></div>; }
 function Page({ title, sub, children }: any) {
   return (
     <section className="page">
