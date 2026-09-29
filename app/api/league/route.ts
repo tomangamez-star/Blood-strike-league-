@@ -39,8 +39,8 @@ export async function GET() {
         claimCodes =
           await sql`select id,username,claimed,claim_code from players where role<>'owner' order by id`;
       messages = me?.team_id
-        ? await sql`select m.*,coalesce(p.display_name,p.username) sender_name,p.username,p.avatar_data,p.accent_color from messages m join players p on p.id=m.sender_id where m.channel='public' or (m.channel='team' and m.team_id=${me.team_id}) order by m.created_at desc limit 80`
-        : await sql`select m.*,coalesce(p.display_name,p.username) sender_name,p.username,p.avatar_data,p.accent_color from messages m join players p on p.id=m.sender_id where m.channel='public' order by m.created_at desc limit 80`;
+        ? await sql`select m.*,coalesce(p.display_name,p.username) sender_name,p.username,p.avatar_data,p.accent_color,(select count(*)::int from message_reactions r where r.message_id=m.id) reaction_count,exists(select 1 from message_reactions r where r.message_id=m.id and r.player_id=${me.id}) reacted_by_me from messages m join players p on p.id=m.sender_id where m.channel='public' or (m.channel='team' and m.team_id=${me.team_id}) order by m.created_at desc limit 80`
+        : await sql`select m.*,coalesce(p.display_name,p.username) sender_name,p.username,p.avatar_data,p.accent_color,(select count(*)::int from message_reactions r where r.message_id=m.id) reaction_count,exists(select 1 from message_reactions r where r.message_id=m.id and r.player_id=${me.id}) reacted_by_me from messages m join players p on p.id=m.sender_id where m.channel='public' order by m.created_at desc limit 80`;
       messages.reverse();
       notifications =
         await sql`select * from notifications where player_id=${me.id} order by created_at desc limit 30`;
@@ -143,6 +143,7 @@ export async function POST(req: Request) {
         return fail("Profile picture is too large");
       await sql`update players set display_name=${displayName},bio=${bio},accent_color=${accent},avatar_data=${avatar} where id=${me.id}`;
       await sql`insert into activity(actor_id,text,kind) values(${me.id},${displayName + " updated their profile"},'profile')`;
+      await sql`insert into notifications(player_id,title,body,kind) values(${me.id},'Profile updated','Your new profile details are now live.','profile')`;
       return NextResponse.json({ message: "Profile updated." });
     }
     if (b.action === "changePassword") {
@@ -157,6 +158,7 @@ export async function POST(req: Request) {
         return fail("Current password is incorrect");
       const hash = await bcrypt.hash(String(b.newPassword), 12);
       await sql`update players set password_hash=${hash} where id=${me.id}`;
+      await sql`insert into notifications(player_id,title,body,kind) values(${me.id},'Password changed','Your account password was updated successfully.','security')`;
       return NextResponse.json({ message: "Password changed." });
     }
     if (b.action === "sendMessage") {
@@ -169,6 +171,14 @@ export async function POST(req: Request) {
         return fail("Join a team to use team chat");
       await sql`insert into messages(sender_id,channel,team_id,content) values(${me.id},${channel},${channel === "team" ? me.team_id : null},${content})`;
       return NextResponse.json({ message: "Message sent." });
+    }
+    if (b.action === "toggleReaction") {
+      const [message] = await sql`select * from messages where id=${b.messageId}`;
+      if (!message || (message.channel === "team" && message.team_id !== me.team_id)) return fail("Message unavailable", 404);
+      const existing = await sql`select 1 from message_reactions where message_id=${message.id} and player_id=${me.id}`;
+      if (existing.length) await sql`delete from message_reactions where message_id=${message.id} and player_id=${me.id}`;
+      else await sql`insert into message_reactions(message_id,player_id) values(${message.id},${me.id})`;
+      return NextResponse.json({ message: existing.length ? "Reaction removed." : "Reacted." });
     }
     if (b.action === "markNotificationsRead") {
       await sql`update notifications set is_read=true where player_id=${me.id}`;
@@ -184,6 +194,7 @@ export async function POST(req: Request) {
         return fail("This is not your fixture");
       await sql`insert into fixture_checkins(fixture_id,player_id) values(${f.id},${me.id}) on conflict do nothing`;
       await sql`insert into activity(actor_id,text,kind) values(${me.id},${me.username + " is ready for the next match"},'ready')`;
+      await sql`insert into notifications(player_id,title,body,kind) values(${me.id},'Match check-in confirmed','You are marked ready for your upcoming battle.','fixture')`;
       return NextResponse.json({ message: "You are marked ready." });
     }
     if (b.action === "invite") {
@@ -193,6 +204,7 @@ export async function POST(req: Request) {
         return fail("That player is not available");
       await sql`insert into team_requests(from_player_id,to_player_id) values(${me.id},${target.id}) on conflict do nothing`;
       await sql`insert into notifications(player_id,title,body,kind) values(${target.id},'New teammate request',${me.username + " wants to form a duo with you"},'team')`;
+      await sql`insert into notifications(player_id,title,body,kind) values(${me.id},'Request sent',${"Your teammate request was sent to " + target.username + "."},'team')`;
       return NextResponse.json({ message: "Teammate request sent." });
     }
     if (b.action === "respondInvite") {
@@ -234,6 +246,7 @@ export async function POST(req: Request) {
         return fail("That team name is already taken");
       await sql`update name_proposals set status='cancelled' where team_id=${me.team_id} and status='pending'`;
       await sql`insert into name_proposals(team_id,proposed_by,name) values(${me.team_id},${me.id},${name})`;
+      await sql`insert into notifications(player_id,title,body,kind) values(${me.id},'Team name proposed',${name + " is waiting for your teammate's approval."},'team')`;
       return NextResponse.json({ message: "Team name sent for approval." });
     }
     if (b.action === "respondName") {
