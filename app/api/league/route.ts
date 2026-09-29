@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
+import { randomBytes } from "node:crypto";
 import { db } from "@/lib/db";
 import { clearSession, session, setSession } from "@/lib/auth";
-import { randomBytes } from "node:crypto";
 const fail = (error: string, status = 400) =>
   NextResponse.json({ error }, { status });
 export async function GET() {
@@ -10,18 +10,26 @@ export async function GET() {
     const sql = db(),
       s = await session();
     const players =
-      await sql`select id,username,claimed,role,team_id from players order by id`;
+      await sql`select id,username,coalesce(display_name,username) display_name,bio,avatar_data,accent_color,claimed,role,team_id,last_seen from players order by id`;
     const teams =
       await sql`select t.*,p1.username player1,p2.username player2 from teams t join players p1 on p1.id=t.player1_id join players p2 on p2.id=t.player2_id order by t.id`;
     const fixtures =
       await sql`select f.*,coalesce(ht.name,'USER & USER') home_name,coalesce(at.name,'USER & USER') away_name from fixtures f join teams ht on ht.id=f.home_team_id join teams at on at.id=f.away_team_id order by f.scheduled_at nulls last,f.id`;
+    const onlinePlayers =
+      await sql`select id,username,coalesce(display_name,username) display_name,avatar_data,accent_color from players where last_seen>now()-interval '5 minutes' order by display_name`;
+    const activity =
+      await sql`select a.*,coalesce(p.display_name,p.username) actor_name,p.avatar_data from activity a left join players p on p.id=a.actor_id order by a.created_at desc limit 20`;
     let me = null,
       pendingInvites: any[] = [],
       pendingNames: any[] = [],
-      claimCodes: any[] = [];
+      claimCodes: any[] = [],
+      messages: any[] = [],
+      notifications: any[] = [],
+      checkins: any[] = [];
     if (s) {
+      await sql`update players set last_seen=now() where id=${s.playerId}`;
       [me] =
-        await sql`select id,username,claimed,role,team_id from players where id=${s.playerId}`;
+        await sql`select id,username,coalesce(display_name,username) display_name,bio,avatar_data,accent_color,claimed,role,team_id,last_seen from players where id=${s.playerId}`;
       pendingInvites =
         await sql`select r.id,p.username from_username from team_requests r join players p on p.id=r.from_player_id where r.to_player_id=${s.playerId} and r.status='pending'`;
       if (me?.team_id)
@@ -30,6 +38,14 @@ export async function GET() {
       if (me?.role === "owner")
         claimCodes =
           await sql`select id,username,claimed,claim_code from players where role<>'owner' order by id`;
+      messages = me?.team_id
+        ? await sql`select m.*,coalesce(p.display_name,p.username) sender_name,p.username,p.avatar_data,p.accent_color from messages m join players p on p.id=m.sender_id where m.channel='public' or (m.channel='team' and m.team_id=${me.team_id}) order by m.created_at desc limit 80`
+        : await sql`select m.*,coalesce(p.display_name,p.username) sender_name,p.username,p.avatar_data,p.accent_color from messages m join players p on p.id=m.sender_id where m.channel='public' order by m.created_at desc limit 80`;
+      messages.reverse();
+      notifications =
+        await sql`select * from notifications where player_id=${me.id} order by created_at desc limit 30`;
+      checkins =
+        await sql`select fixture_id,player_id from fixture_checkins where player_id=${me.id}`;
     }
     return NextResponse.json({
       players,
@@ -39,6 +55,11 @@ export async function GET() {
       pendingInvites,
       pendingNames,
       claimCodes,
+      messages,
+      notifications,
+      activity,
+      onlinePlayers,
+      checkins,
     });
   } catch (e: any) {
     return fail(e.message, 500);
@@ -75,7 +96,7 @@ export async function POST(req: Request) {
         process.env.OWNER_PASSWORD &&
         String(b.password) === process.env.OWNER_PASSWORD
       ) {
-        await sql`update players set claimed=true where id=${p.id}`;
+        await sql`update players set claimed=true,last_seen=now() where id=${p.id}`;
         await setSession(p.id, p.role);
         return NextResponse.json({ message: "Owner access granted." });
       }
@@ -95,12 +116,83 @@ export async function POST(req: Request) {
     if (!s) return fail("Login required", 401);
     const [me] = await sql`select * from players where id=${s.playerId}`;
     if (!me) return fail("Account not found", 401);
+    await sql`update players set last_seen=now() where id=${me.id}`;
+    if (b.action === "updateProfile") {
+      const displayName = String(b.displayName || "")
+          .trim()
+          .slice(0, 24),
+        bio = String(b.bio || "")
+          .trim()
+          .slice(0, 120),
+        allowed = [
+          "#ff3347",
+          "#37a8ff",
+          "#a970ff",
+          "#ffb020",
+          "#27d69b",
+          "#ff5db1",
+        ],
+        accent = allowed.includes(b.accentColor) ? b.accentColor : "#ff3347",
+        avatar = b.avatarData == null ? me.avatar_data : String(b.avatarData);
+      if (displayName.length < 2)
+        return fail("Display name must be at least 2 characters");
+      if (
+        avatar &&
+        (!avatar.startsWith("data:image/") || avatar.length > 500000)
+      )
+        return fail("Profile picture is too large");
+      await sql`update players set display_name=${displayName},bio=${bio},accent_color=${accent},avatar_data=${avatar} where id=${me.id}`;
+      await sql`insert into activity(actor_id,text,kind) values(${me.id},${displayName + " updated their profile"},'profile')`;
+      return NextResponse.json({ message: "Profile updated." });
+    }
+    if (b.action === "changePassword") {
+      if (me.role === "owner")
+        return fail("Change OWNER_PASSWORD from Render Environment");
+      if (String(b.newPassword || "").length < 8)
+        return fail("New password must have at least 8 characters");
+      if (
+        !me.password_hash ||
+        !(await bcrypt.compare(String(b.currentPassword), me.password_hash))
+      )
+        return fail("Current password is incorrect");
+      const hash = await bcrypt.hash(String(b.newPassword), 12);
+      await sql`update players set password_hash=${hash} where id=${me.id}`;
+      return NextResponse.json({ message: "Password changed." });
+    }
+    if (b.action === "sendMessage") {
+      const content = String(b.content || "")
+          .trim()
+          .slice(0, 300),
+        channel = b.channel === "team" ? "team" : "public";
+      if (!content) return fail("Write a message first");
+      if (channel === "team" && !me.team_id)
+        return fail("Join a team to use team chat");
+      await sql`insert into messages(sender_id,channel,team_id,content) values(${me.id},${channel},${channel === "team" ? me.team_id : null},${content})`;
+      return NextResponse.json({ message: "Message sent." });
+    }
+    if (b.action === "markNotificationsRead") {
+      await sql`update notifications set is_read=true where player_id=${me.id}`;
+      return NextResponse.json({ message: "Notifications cleared." });
+    }
+    if (b.action === "checkIn") {
+      const [f] = await sql`select * from fixtures where id=${b.fixtureId}`;
+      if (
+        !f ||
+        !me.team_id ||
+        ![f.home_team_id, f.away_team_id].includes(me.team_id)
+      )
+        return fail("This is not your fixture");
+      await sql`insert into fixture_checkins(fixture_id,player_id) values(${f.id},${me.id}) on conflict do nothing`;
+      await sql`insert into activity(actor_id,text,kind) values(${me.id},${me.username + " is ready for the next match"},'ready')`;
+      return NextResponse.json({ message: "You are marked ready." });
+    }
     if (b.action === "invite") {
       const [target] =
         await sql`select * from players where id=${b.targetPlayerId}`;
       if (me.team_id || !target || target.team_id || target.id === me.id)
         return fail("That player is not available");
       await sql`insert into team_requests(from_player_id,to_player_id) values(${me.id},${target.id}) on conflict do nothing`;
+      await sql`insert into notifications(player_id,title,body,kind) values(${target.id},'New teammate request',${me.username + " wants to form a duo with you"},'team')`;
       return NextResponse.json({ message: "Teammate request sent." });
     }
     if (b.action === "respondInvite") {
@@ -112,17 +204,18 @@ export async function POST(req: Request) {
         return NextResponse.json({ message: "Request declined." });
       }
       const [a, c] = [
-        Math.min(r.from_player_id, r.to_player_id),
-        Math.max(r.from_player_id, r.to_player_id),
-      ];
-      const check =
-        await sql`select id from players where id in (${a},${c}) and team_id is not null`;
+          Math.min(r.from_player_id, r.to_player_id),
+          Math.max(r.from_player_id, r.to_player_id),
+        ],
+        check =
+          await sql`select id from players where id in (${a},${c}) and team_id is not null`;
       if (check.length) return fail("One player already joined a team");
       const [t] =
         await sql`insert into teams(player1_id,player2_id) values(${a},${c}) returning id`;
       await sql.begin(async (tx) => {
         await tx`update players set team_id=${t.id} where id in (${a},${c})`;
         await tx`update team_requests set status='cancelled' where status='pending' and (from_player_id in (${a},${c}) or to_player_id in (${a},${c}))`;
+        await tx`insert into activity(actor_id,text,kind) values(${me.id},${me.username + " formed a new duo"},'team')`;
       });
       return NextResponse.json({
         message: "Team formed! You can now suggest a name.",
@@ -134,9 +227,11 @@ export async function POST(req: Request) {
         .slice(0, 30);
       if (!me.team_id || name.length < 3)
         return fail("Enter a team name of at least 3 characters");
-      const dupe =
-        await sql`select id from teams where lower(name)=lower(${name})`;
-      if (dupe.length) return fail("That team name is already taken");
+      if (
+        (await sql`select id from teams where lower(name)=lower(${name})`)
+          .length
+      )
+        return fail("That team name is already taken");
       await sql`update name_proposals set status='cancelled' where team_id=${me.team_id} and status='pending'`;
       await sql`insert into name_proposals(team_id,proposed_by,name) values(${me.team_id},${me.id},${name})`;
       return NextResponse.json({ message: "Team name sent for approval." });
@@ -158,6 +253,8 @@ export async function POST(req: Request) {
       if (b.homeTeamId === b.awayTeamId)
         return fail("Choose two different teams");
       await sql`insert into fixtures(home_team_id,away_team_id,scheduled_at) values(${b.homeTeamId},${b.awayTeamId},${b.scheduledAt || null})`;
+      await sql`insert into notifications(player_id,title,body,kind) select id,'New fixture','A new league fixture has been scheduled','fixture' from players where claimed=true`;
+      await sql`insert into activity(actor_id,text,kind) values(${me.id},'A new fixture was scheduled','fixture')`;
       return NextResponse.json({ message: "Fixture created." });
     }
     if (b.action === "setResult") {
@@ -181,6 +278,7 @@ export async function POST(req: Request) {
           +b.awayScore,
         );
       });
+      await sql`insert into activity(actor_id,text,kind) values(${me.id},${"Result confirmed: " + b.homeScore + "–" + b.awayScore},'result')`;
       return NextResponse.json({
         message: "Result saved and table recalculated.",
       });
@@ -197,8 +295,8 @@ export async function POST(req: Request) {
         await sql`select id,claimed,role from players where id=${b.playerId}`;
       if (!target || target.role === "owner" || target.claimed)
         return fail("That player's account cannot receive a new code");
-      const code = `BSL-${randomBytes(3).toString("hex").toUpperCase()}`;
-      const hash = await bcrypt.hash(code, 12);
+      const code = `BSL-${randomBytes(3).toString("hex").toUpperCase()}`,
+        hash = await bcrypt.hash(code, 12);
       await sql`update players set claim_code=${code},claim_code_hash=${hash} where id=${target.id}`;
       return NextResponse.json({ message: `New code created: ${code}` });
     }
