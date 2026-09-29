@@ -1,5 +1,10 @@
 create table if not exists players(id serial primary key,username text unique not null,claimed boolean not null default false,password_hash text,claim_code_hash text,claim_code text,role text not null default 'player' check(role in('player','admin','owner')),team_id integer);
 alter table players add column if not exists claim_code text;
+alter table players add column if not exists display_name text;
+alter table players add column if not exists bio text not null default '';
+alter table players add column if not exists avatar_data text;
+alter table players add column if not exists accent_color text not null default '#ff3347';
+alter table players add column if not exists last_seen timestamptz;
 create table if not exists teams(id serial primary key,name text unique,player1_id integer not null references players(id),player2_id integer not null references players(id),wins integer not null default 0,draws integer not null default 0,losses integer not null default 0,rounds_for integer not null default 0,rounds_against integer not null default 0,points integer not null default 0);
 alter table players drop constraint if exists players_team_id_fkey;
 alter table players add constraint players_team_id_fkey foreign key(team_id) references teams(id) on delete set null;
@@ -7,3 +12,9 @@ create table if not exists team_requests(id serial primary key,from_player_id in
 create unique index if not exists one_pending_request on team_requests(from_player_id,to_player_id) where status='pending';
 create table if not exists name_proposals(id serial primary key,team_id integer not null references teams(id),proposed_by integer not null references players(id),name text not null,status text not null default 'pending',created_at timestamptz not null default now());
 create table if not exists fixtures(id serial primary key,home_team_id integer not null references teams(id),away_team_id integer not null references teams(id),home_score integer,away_score integer,scheduled_at timestamptz,status text not null default 'scheduled',created_at timestamptz not null default now());
+create table if not exists messages(id serial primary key,sender_id integer not null references players(id),channel text not null check(channel in('public','team')),team_id integer references teams(id),content text not null,created_at timestamptz not null default now());
+create index if not exists idx_messages_channel_created on messages(channel,created_at desc);
+create table if not exists notifications(id serial primary key,player_id integer not null references players(id),title text not null,body text not null,kind text not null default 'info',is_read boolean not null default false,created_at timestamptz not null default now());
+create index if not exists idx_notifications_player_created on notifications(player_id,created_at desc);
+create table if not exists activity(id serial primary key,actor_id integer references players(id),text text not null,kind text not null default 'league',created_at timestamptz not null default now());
+create table if not exists fixture_checkins(fixture_id integer not null references fixtures(id) on delete cascade,player_id integer not null references players(id) on delete cascade,created_at timestamptz not null default now(),primary key(fixture_id,player_id));

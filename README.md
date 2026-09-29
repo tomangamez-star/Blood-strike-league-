@@ -13,6 +13,12 @@ A full-stack Blood Strike community league website for eight competitors and fou
 - Automatic league table calculation when results are saved
 - Owner/admin control room for fixtures, scores and admin roles
 - Responsive red-and-black esports interface
+- Colourful player-first navigation: Home, League, Arena, Chat and Profile
+- Public league chat and private teammate chat
+- Notifications, online presence and league activity feed
+- Match-ready check-ins
+- Editable display name, bio, profile colour and compressed profile picture
+- Player password settings and owner-safe Render password management
 - Supabase Postgres persistence and Render deployment configuration
 
 ## Deploy to Render
