@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: blood-strike-league
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run setup-db && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 22.14.0
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
