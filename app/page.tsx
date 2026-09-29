@@ -12,6 +12,14 @@ import {
   UserPlus,
   Users,
   X,
+  Bell,
+  MessageCircle,
+  Gamepad2,
+  UserRound,
+  Send,
+  ImagePlus,
+  Activity,
+  CheckCircle2,
 } from "lucide-react";
 const names = [
   "czarkills",
@@ -29,6 +37,10 @@ type Player = {
   claimed: boolean;
   role: string;
   team_id: number | null;
+  display_name?: string;
+  bio?: string;
+  avatar_data?: string | null;
+  accent_color?: string;
 };
 type Team = {
   id: number;
@@ -61,6 +73,11 @@ type League = {
   pendingInvites: any[];
   pendingNames: any[];
   claimCodes: any[];
+  messages: any[];
+  notifications: any[];
+  activity: any[];
+  onlinePlayers: any[];
+  checkins: any[];
 };
 const fallback: League = {
   players: names.map((username, i) => ({
@@ -76,6 +93,11 @@ const fallback: League = {
   pendingInvites: [],
   pendingNames: [],
   claimCodes: [],
+  messages: [],
+  notifications: [],
+  activity: [],
+  onlinePlayers: [],
+  checkins: [],
 };
 export default function Home() {
   const [data, setData] = useState<League>(fallback),
@@ -83,7 +105,8 @@ export default function Home() {
     [auth, setAuth] = useState<string | null>(null),
     [mobile, setMobile] = useState(false),
     [busy, setBusy] = useState(false),
-    [toast, setToast] = useState("");
+    [toast, setToast] = useState(""),
+    [notices, setNotices] = useState(false);
   const load = async () => {
     try {
       const r = await fetch("/api/league", { cache: "no-store" });
@@ -123,11 +146,15 @@ export default function Home() {
     [data.teams],
   );
   const nav = [
-    ["home", "Overview"],
-    ["standings", "Standings"],
-    ["fixtures", "Fixtures"],
-    ["teams", "Teams"],
-    ...(data.me ? [["dashboard", "My HQ"]] : []),
+    ["home", "Home"],
+    ["standings", "League"],
+    ["fixtures", "Arena"],
+    ...(data.me
+      ? [
+          ["chat", "Chat"],
+          ["dashboard", "Profile"],
+        ]
+      : []),
     ...(["admin", "owner"].includes(data.me?.role || "")
       ? [["admin", "Admin"]]
       : []),
@@ -159,6 +186,12 @@ export default function Home() {
             </button>
           ))}
         </nav>
+        {data.me && (
+          <button className="notice-btn" onClick={() => setNotices(!notices)}>
+            <Bell size={19} />
+            {data.notifications.some((n: any) => !n.is_read) && <i />}
+          </button>
+        )}
         <button
           className="account"
           onClick={() => (data.me ? setView("dashboard") : setAuth("choice"))}
@@ -166,7 +199,7 @@ export default function Home() {
           {data.me ? (
             <>
               <span className="online" />
-              {data.me.username}
+              {data.me.display_name || data.me.username}
             </>
           ) : (
             <>
@@ -175,6 +208,27 @@ export default function Home() {
           )}
         </button>
       </header>
+      {notices && data.me && (
+        <div className="notice-drawer">
+          <div>
+            <b>NOTIFICATIONS</b>
+            <button onClick={() => act("markNotificationsRead")}>
+              MARK READ
+            </button>
+          </div>
+          {data.notifications.length ? (
+            data.notifications.slice(0, 8).map((n: any) => (
+              <article className={n.is_read ? "" : "unread"} key={n.id}>
+                <span>{n.title}</span>
+                <p>{n.body}</p>
+                <small>{new Date(n.created_at).toLocaleString()}</small>
+              </article>
+            ))
+          ) : (
+            <p className="muted">Nothing new yet.</p>
+          )}
+        </div>
+      )}
       {toast && (
         <div className="toast" onClick={() => setToast("")}>
           {toast}
@@ -251,6 +305,7 @@ export default function Home() {
               <Standings teams={standings.slice(0, 4)} />
             </Panel>
           </section>
+          {data.me && <SocialStrip data={data} setView={setView} />}
         </>
       )}
       {view === "standings" && (
@@ -261,6 +316,20 @@ export default function Home() {
           <div className="table-card">
             <Standings teams={standings} full />
           </div>
+          <div className="team-grid league-teams">
+            {data.teams.map((t) => (
+              <article className="team-card" key={t.id}>
+                <Shield />
+                <small>DUO</small>
+                <h3>{t.name || "USER & USER"}</h3>
+                <div>
+                  <span>{t.player1}</span>
+                  <b>+</b>
+                  <span>{t.player2}</span>
+                </div>
+              </article>
+            ))}
+          </div>
         </Page>
       )}
       {view === "fixtures" && (
@@ -269,7 +338,7 @@ export default function Home() {
           sub="Scheduled battles and confirmed scores"
         >
           <div className="fixture-grid">
-            <FixtureList fixtures={data.fixtures} large />
+            <ArenaList fixtures={data.fixtures} data={data} act={act} />
           </div>
         </Page>
       )}
@@ -299,8 +368,9 @@ export default function Home() {
         </Page>
       )}
       {view === "dashboard" && data.me && (
-        <PlayerHQ data={data} act={act} busy={busy} />
+        <Profile data={data} act={act} busy={busy} />
       )}{" "}
+      {view === "chat" && data.me && <Chat data={data} act={act} busy={busy} />}
       {view === "admin" && ["admin", "owner"].includes(data.me?.role || "") && (
         <Admin data={data} act={act} busy={busy} />
       )}{" "}
@@ -655,6 +725,499 @@ function PlayerHQ({ data, act, busy }: any) {
         </Panel>
       </div>
     </Page>
+  );
+}
+function Avatar({ player, size = 42 }: any) {
+  const name =
+    player?.display_name || player?.sender_name || player?.username || "?";
+  return player?.avatar_data ? (
+    <img
+      className="avatar"
+      style={{ width: size, height: size, borderColor: player.accent_color }}
+      src={player.avatar_data}
+      alt=""
+    />
+  ) : (
+    <span
+      className="avatar avatar-fallback"
+      style={{
+        width: size,
+        height: size,
+        borderColor: player?.accent_color,
+        background: `${player?.accent_color || "#ff3347"}22`,
+        color: player?.accent_color || "#ff3347",
+      }}
+    >
+      {name.slice(0, 2).toUpperCase()}
+    </span>
+  );
+}
+function SocialStrip({ data, setView }: any) {
+  return (
+    <section className="social-strip">
+      <div className="live-card">
+        <span className="pulse" />
+        <div>
+          <small>PLAYERS ONLINE</small>
+          <strong>{data.onlinePlayers.length}</strong>
+        </div>
+        <div className="avatar-stack">
+          {data.onlinePlayers.slice(0, 5).map((p: any) => (
+            <Avatar key={p.id} player={p} size={36} />
+          ))}
+        </div>
+      </div>
+      <button className="social-action blue" onClick={() => setView("chat")}>
+        <MessageCircle />
+        <span>
+          <b>LEAGUE CHAT</b>
+          <small>Talk, plan and challenge</small>
+        </span>
+      </button>
+      <div className="activity-mini">
+        <Activity />
+        <span>
+          <b>LATEST ACTIVITY</b>
+          <small>{data.activity[0]?.text || "The league is warming up"}</small>
+        </span>
+      </div>
+    </section>
+  );
+}
+function ArenaList({ fixtures, data, act }: any) {
+  const checked = new Set(data.checkins.map((x: any) => x.fixture_id));
+  return (
+    <div className="arena-list">
+      {fixtures.length ? (
+        fixtures.map((f: Fixture) => (
+          <article className="battle-card" key={f.id}>
+            <div className="battle-date">
+              {f.scheduled_at
+                ? new Date(f.scheduled_at).toLocaleString([], {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  })
+                : "DATE TBA"}
+            </div>
+            <div className="battle-versus">
+              <strong>{f.home_name}</strong>
+              <em>
+                {f.status === "completed"
+                  ? `${f.home_score} : ${f.away_score}`
+                  : "VS"}
+              </em>
+              <strong>{f.away_name}</strong>
+            </div>
+            <div className="battle-foot">
+              <span className={f.status}>{f.status}</span>
+              {data.me &&
+                data.me.team_id &&
+                [f.home_team_id, f.away_team_id].includes(data.me.team_id) &&
+                f.status !== "completed" && (
+                  <button
+                    disabled={checked.has(f.id)}
+                    onClick={() => act("checkIn", { fixtureId: f.id })}
+                  >
+                    <CheckCircle2 />
+                    {checked.has(f.id) ? "READY" : "CHECK IN"}
+                  </button>
+                )}
+            </div>
+          </article>
+        ))
+      ) : (
+        <Empty text="Fixtures will appear when an admin schedules them." />
+      )}
+    </div>
+  );
+}
+function Chat({ data, act, busy }: any) {
+  const [channel, setChannel] = useState("public"),
+    [message, setMessage] = useState("");
+  const list = data.messages.filter((m: any) => m.channel === channel);
+  const send = () => {
+    if (message.trim()) {
+      act("sendMessage", { channel, content: message });
+      setMessage("");
+    }
+  };
+  return (
+    <Page
+      title="LEAGUE CHAT"
+      sub="The live room for challenges, reactions and team plans"
+    >
+      <div className="chat-shell">
+        <aside>
+          <button
+            className={channel === "public" ? "active" : ""}
+            onClick={() => setChannel("public")}
+          >
+            <MessageCircle />
+            Public arena
+          </button>
+          <button
+            disabled={!data.me.team_id}
+            className={channel === "team" ? "active" : ""}
+            onClick={() => setChannel("team")}
+          >
+            <Shield />
+            Team room
+          </button>
+          <div className="online-list">
+            <small>ONLINE NOW</small>
+            {data.onlinePlayers.map((p: any) => (
+              <div key={p.id}>
+                <Avatar player={p} size={32} />
+                <span>{p.display_name}</span>
+                <i />
+              </div>
+            ))}
+          </div>
+        </aside>
+        <section>
+          <div className="messages">
+            {list.length ? (
+              list.map((m: any) => (
+                <article
+                  className={m.sender_id === data.me.id ? "mine" : ""}
+                  key={m.id}
+                >
+                  <Avatar player={m} size={38} />
+                  <div>
+                    <b>
+                      {m.sender_name}
+                      <small>@{m.username}</small>
+                    </b>
+                    <p>{m.content}</p>
+                    <time>
+                      {new Date(m.created_at).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </time>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <Empty
+                text={
+                  channel === "team"
+                    ? "Your private team room is ready."
+                    : "Start the first league conversation."
+                }
+              />
+            )}
+          </div>
+          <div className="composer">
+            <input
+              value={message}
+              maxLength={300}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && send()}
+              placeholder={
+                channel === "team"
+                  ? "Message your teammate..."
+                  : "Message the league..."
+              }
+            />
+            <button disabled={busy || !message.trim()} onClick={send}>
+              <Send />
+            </button>
+          </div>
+        </section>
+      </div>
+    </Page>
+  );
+}
+function Profile({ data, act, busy }: any) {
+  const me = data.me,
+    [displayName, setDisplayName] = useState(me.display_name || me.username),
+    [bio, setBio] = useState(me.bio || ""),
+    [accent, setAccent] = useState(me.accent_color || "#ff3347"),
+    [avatar, setAvatar] = useState(me.avatar_data || null),
+    [oldPass, setOldPass] = useState(""),
+    [newPass, setNewPass] = useState("");
+  const readImage = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement("canvas"),
+          ctx = c.getContext("2d")!;
+        c.width = 256;
+        c.height = 256;
+        const side = Math.min(img.width, img.height),
+          sx = (img.width - side) / 2,
+          sy = (img.height - side) / 2;
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, 256, 256);
+        setAvatar(c.toDataURL("image/jpeg", 0.78));
+      };
+      img.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+  return (
+    <Page title="MY PROFILE" sub="Your identity inside the Strike League">
+      <section className="profile-hero" style={{ "--accent": accent } as any}>
+        <div className="profile-glow" />
+        <label className="avatar-edit">
+          <Avatar
+            player={{
+              ...me,
+              avatar_data: avatar,
+              display_name: displayName,
+              accent_color: accent,
+            }}
+            size={112}
+          />
+          <span>
+            <ImagePlus />
+            CHANGE
+          </span>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) =>
+              e.target.files?.[0] && readImage(e.target.files[0])
+            }
+          />
+        </label>
+        <div>
+          <small>{me.role.toUpperCase()}</small>
+          <h2>{displayName}</h2>
+          <p>@{me.username}</p>
+          <span className="status-pill">
+            <i /> ONLINE
+          </span>
+        </div>
+      </section>
+      <div className="profile-grid">
+        <Panel title="ACCOUNT SETTINGS" icon={<UserRound />}>
+          <label>
+            Display name
+            <input
+              value={displayName}
+              maxLength={24}
+              onChange={(e) => setDisplayName(e.target.value)}
+            />
+          </label>
+          <label>
+            Bio
+            <textarea
+              value={bio}
+              maxLength={120}
+              onChange={(e) => setBio(e.target.value)}
+              placeholder="Tell the league about yourself"
+            />
+          </label>
+          <label>
+            Profile colour
+            <div className="color-row">
+              {[
+                "#ff3347",
+                "#37a8ff",
+                "#a970ff",
+                "#ffb020",
+                "#27d69b",
+                "#ff5db1",
+              ].map((c) => (
+                <button
+                  key={c}
+                  className={accent === c ? "selected" : ""}
+                  style={{ background: c }}
+                  onClick={() => setAccent(c)}
+                />
+              ))}
+            </div>
+          </label>
+          <button
+            className="primary wide"
+            disabled={busy}
+            onClick={() =>
+              act("updateProfile", {
+                displayName,
+                bio,
+                accentColor: accent,
+                avatarData: avatar,
+              })
+            }
+          >
+            SAVE PROFILE
+          </button>
+        </Panel>
+        <Panel title="TEAM & REQUESTS" icon={<Users />}>
+          <TeamControls data={data} act={act} busy={busy} />
+        </Panel>
+        <Panel title="SECURITY" icon={<Shield />}>
+          {me.role === "owner" ? (
+            <p className="muted">
+              Your owner password is managed securely from Render Environment as{" "}
+              <b>OWNER_PASSWORD</b>.
+            </p>
+          ) : (
+            <>
+              <label>
+                Current password
+                <input
+                  type="password"
+                  value={oldPass}
+                  onChange={(e) => setOldPass(e.target.value)}
+                />
+              </label>
+              <label>
+                New password
+                <input
+                  type="password"
+                  value={newPass}
+                  onChange={(e) => setNewPass(e.target.value)}
+                />
+              </label>
+              <button
+                className="ghost wide"
+                onClick={() =>
+                  act("changePassword", {
+                    currentPassword: oldPass,
+                    newPassword: newPass,
+                  })
+                }
+              >
+                CHANGE PASSWORD
+              </button>
+            </>
+          )}
+          <button className="danger wide" onClick={() => act("logout")}>
+            LOG OUT
+          </button>
+        </Panel>
+        <Panel title="RECENT ACTIVITY" icon={<Activity />}>
+          <ActivityFeed
+            items={data.activity
+              .filter((a: any) => a.actor_id === me.id)
+              .slice(0, 6)}
+          />
+        </Panel>
+      </div>
+    </Page>
+  );
+}
+function TeamControls({ data, act, busy }: any) {
+  const me = data.me,
+    available = data.players.filter(
+      (p: Player) => !p.team_id && p.id !== me.id,
+    ),
+    [target, setTarget] = useState(""),
+    [name, setName] = useState("");
+  return (
+    <>
+      {me.team_id ? (
+        <p className="status-ok">
+          <Shield />
+          <b>DUO FORMED</b>
+        </p>
+      ) : (
+        <>
+          <select value={target} onChange={(e) => setTarget(e.target.value)}>
+            <option value="">Choose teammate</option>
+            {available.map((p: Player) => (
+              <option key={p.id} value={p.id}>
+                {p.display_name || p.username}
+              </option>
+            ))}
+          </select>
+          <button
+            disabled={busy || !target}
+            className="primary wide"
+            onClick={() => act("invite", { targetPlayerId: +target })}
+          >
+            <UserPlus />
+            SEND REQUEST
+          </button>
+        </>
+      )}
+      {data.pendingInvites.map((r: any) => (
+        <article className="request" key={r.id}>
+          <span>
+            <b>{r.from_username}</b> wants to team up
+          </span>
+          <div>
+            <button
+              onClick={() =>
+                act("respondInvite", { requestId: r.id, accept: true })
+              }
+            >
+              ACCEPT
+            </button>
+            <button
+              onClick={() =>
+                act("respondInvite", { requestId: r.id, accept: false })
+              }
+            >
+              DECLINE
+            </button>
+          </div>
+        </article>
+      ))}
+      {me.team_id && (
+        <>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Suggest a team name"
+          />
+          <button
+            disabled={!name}
+            className="ghost wide"
+            onClick={() => act("suggestName", { name })}
+          >
+            SUGGEST NAME
+          </button>
+        </>
+      )}
+      {data.pendingNames.map((n: any) => (
+        <article className="request" key={n.id}>
+          <span>
+            <b>{n.name}</b>
+          </span>
+          <div>
+            <button
+              onClick={() =>
+                act("respondName", { proposalId: n.id, accept: true })
+              }
+            >
+              ACCEPT
+            </button>
+            <button
+              onClick={() =>
+                act("respondName", { proposalId: n.id, accept: false })
+              }
+            >
+              DECLINE
+            </button>
+          </div>
+        </article>
+      ))}
+    </>
+  );
+}
+function ActivityFeed({ items }: any) {
+  return (
+    <div className="activity-feed">
+      {items.length ? (
+        items.map((a: any) => (
+          <article key={a.id}>
+            <span className={`activity-icon ${a.kind}`}>
+              <Activity />
+            </span>
+            <div>
+              <b>{a.text}</b>
+              <small>{new Date(a.created_at).toLocaleString()}</small>
+            </div>
+          </article>
+        ))
+      ) : (
+        <p className="muted">No activity yet.</p>
+      )}
+    </div>
   );
 }
 function Admin({ data, act, busy }: any) {
