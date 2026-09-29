@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { clearSession, session, setSession } from "@/lib/auth";
+import { randomBytes } from "node:crypto";
 const fail = (error: string, status = 400) =>
   NextResponse.json({ error }, { status });
 export async function GET() {
@@ -16,7 +17,8 @@ export async function GET() {
       await sql`select f.*,coalesce(ht.name,'USER & USER') home_name,coalesce(at.name,'USER & USER') away_name from fixtures f join teams ht on ht.id=f.home_team_id join teams at on at.id=f.away_team_id order by f.scheduled_at nulls last,f.id`;
     let me = null,
       pendingInvites: any[] = [],
-      pendingNames: any[] = [];
+      pendingNames: any[] = [],
+      claimCodes: any[] = [];
     if (s) {
       [me] =
         await sql`select id,username,claimed,role,team_id from players where id=${s.playerId}`;
@@ -25,6 +27,9 @@ export async function GET() {
       if (me?.team_id)
         pendingNames =
           await sql`select n.id,n.name,p.username proposed_by from name_proposals n join players p on p.id=n.proposed_by where n.team_id=${me.team_id} and n.status='pending' and n.proposed_by<>${s.playerId}`;
+      if (me?.role === "owner")
+        claimCodes =
+          await sql`select id,username,claimed,claim_code from players where role<>'owner' order by id`;
     }
     return NextResponse.json({
       players,
@@ -33,6 +38,7 @@ export async function GET() {
       me,
       pendingInvites,
       pendingNames,
+      claimCodes,
     });
   } catch (e: any) {
     return fail(e.message, 500);
@@ -54,7 +60,7 @@ export async function POST(req: Request) {
       )
         return fail("Invalid claim code");
       const hash = await bcrypt.hash(String(b.password), 12);
-      await sql`update players set password_hash=${hash},claimed=true,claim_code_hash=null where id=${p.id}`;
+      await sql`update players set password_hash=${hash},claimed=true,claim_code_hash=null,claim_code=null where id=${p.id}`;
       await setSession(p.id, p.role);
       return NextResponse.json({
         message: "Profile claimed. Welcome to the league.",
@@ -63,6 +69,16 @@ export async function POST(req: Request) {
     if (b.action === "login") {
       const [p] =
         await sql`select * from players where lower(username)=lower(${b.username})`;
+      if (
+        p?.role === "owner" &&
+        p.username === "IAlone" &&
+        process.env.OWNER_PASSWORD &&
+        String(b.password) === process.env.OWNER_PASSWORD
+      ) {
+        await sql`update players set claimed=true where id=${p.id}`;
+        await setSession(p.id, p.role);
+        return NextResponse.json({ message: "Owner access granted." });
+      }
       if (
         !p?.password_hash ||
         !(await bcrypt.compare(String(b.password), p.password_hash))
@@ -174,6 +190,17 @@ export async function POST(req: Request) {
         return fail("Only the owner can appoint admins", 403);
       await sql`update players set role=${b.admin ? "admin" : "player"} where id=${b.playerId} and role<>'owner'`;
       return NextResponse.json({ message: "Admin role updated." });
+    }
+    if (b.action === "regenerateClaimCode") {
+      if (me.role !== "owner") return fail("Owner access required", 403);
+      const [target] =
+        await sql`select id,claimed,role from players where id=${b.playerId}`;
+      if (!target || target.role === "owner" || target.claimed)
+        return fail("That player's account cannot receive a new code");
+      const code = `BSL-${randomBytes(3).toString("hex").toUpperCase()}`;
+      const hash = await bcrypt.hash(code, 12);
+      await sql`update players set claim_code=${code},claim_code_hash=${hash} where id=${target.id}`;
+      return NextResponse.json({ message: `New code created: ${code}` });
     }
     return fail("Unknown action");
   } catch (e: any) {
