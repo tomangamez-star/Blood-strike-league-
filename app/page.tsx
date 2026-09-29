@@ -60,6 +60,7 @@ type League = {
   me: Player | null;
   pendingInvites: any[];
   pendingNames: any[];
+  claimCodes: any[];
 };
 const fallback: League = {
   players: names.map((username, i) => ({
@@ -74,6 +75,7 @@ const fallback: League = {
   me: null,
   pendingInvites: [],
   pendingNames: [],
+  claimCodes: [],
 };
 export default function Home() {
   const [data, setData] = useState<League>(fallback),
@@ -705,6 +707,30 @@ function Admin({ data, act, busy }: any) {
             <ResultRow key={f.id} f={f} act={act} />
           ))}
         </Panel>
+        {data.me.role === "owner" && (
+          <Panel title="PLAYER CLAIM CODES" icon={<Shield />}>
+            <p className="muted">
+              Send each unclaimed player only the code beside their username.
+            </p>
+            {data.claimCodes.map((p: any) => (
+              <article className="role" key={p.id}>
+                <span>
+                  <b>{p.username}</b>
+                  <small>{p.claimed ? "ACCOUNT CLAIMED" : p.claim_code}</small>
+                </span>
+                {!p.claimed && (
+                  <button
+                    onClick={() =>
+                      act("regenerateClaimCode", { playerId: p.id })
+                    }
+                  >
+                    NEW CODE
+                  </button>
+                )}
+              </article>
+            ))}
+          </Panel>
+        )}
         {data.me.role === "owner" && (
           <Panel title="ADMIN ROLES" icon={<Crown />}>
             {data.players
