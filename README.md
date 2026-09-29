@@ -5,7 +5,8 @@ A full-stack Blood Strike community league website for eight competitors and fou
 ## Included
 
 - Guest mode with public standings, teams, fixtures and results
-- Hardcoded competitor list with secure one-time profile claim codes
+- `IAlone` owner login controlled by a private Render environment password
+- Hardcoded competitor list with one-time profile claim codes visible only to the owner
 - Password login with HTTP-only sessions
 - Teammate invitations and acceptance
 - Two-player approval for official team names
@@ -19,9 +20,9 @@ A full-stack Blood Strike community league website for eight competitors and fou
 1. Create a Supabase project and copy its **connection string** from Project Settings → Database. Use the session pooler URL if direct connections are unavailable.
 2. Push this repository to GitHub.
 3. In Render, choose **New → Blueprint**, connect the repository, and approve `render.yaml`.
-4. Add `DATABASE_URL` when Render requests it. `SESSION_SECRET` is generated automatically.
-5. Open the first deployment logs and find **ONE-TIME CLAIM CODES**. Copy the eight codes printed beneath it. Send each competitor only their own code. Codes for unclaimed accounts are refreshed during a redeploy; claimed accounts remain untouched.
-6. Open the website. `IAlone` is the permanent owner and can promote other claimed players from **Admin → Admin Roles**.
+4. Add `DATABASE_URL` and choose a private `OWNER_PASSWORD` when Render requests them. `SESSION_SECRET` is generated automatically.
+5. Open the website and log in with username `IAlone` plus your `OWNER_PASSWORD`. No claim code is required for the owner.
+6. Open **Admin → Player Claim Codes** to copy or regenerate each unclaimed player's code. `IAlone` can also promote claimed players from **Admin → Admin Roles**.
 
 ## Local development
 

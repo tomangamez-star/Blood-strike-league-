@@ -1,4 +1,5 @@
-create table if not exists players(id serial primary key,username text unique not null,claimed boolean not null default false,password_hash text,claim_code_hash text,role text not null default 'player' check(role in('player','admin','owner')),team_id integer);
+create table if not exists players(id serial primary key,username text unique not null,claimed boolean not null default false,password_hash text,claim_code_hash text,claim_code text,role text not null default 'player' check(role in('player','admin','owner')),team_id integer);
+alter table players add column if not exists claim_code text;
 create table if not exists teams(id serial primary key,name text unique,player1_id integer not null references players(id),player2_id integer not null references players(id),wins integer not null default 0,draws integer not null default 0,losses integer not null default 0,rounds_for integer not null default 0,rounds_against integer not null default 0,points integer not null default 0);
 alter table players drop constraint if exists players_team_id_fkey;
 alter table players add constraint players_team_id_fkey foreign key(team_id) references teams(id) on delete set null;
