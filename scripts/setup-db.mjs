@@ -17,17 +17,19 @@ const players = [
   "crisodan",
   "flamestroke",
 ];
-console.log("\nONE-TIME CLAIM CODES — send each player only their own code\n");
 for (const username of players) {
-  const [existing] = await sql`select claimed from players where username=${username}`;
-  if (existing?.claimed) {
-    console.log(`${username.padEnd(12)} ALREADY CLAIMED`);
+  if (username === "IAlone") {
+    await sql`insert into players(username,role,claimed) values(${username},'owner',true) on conflict(username) do update set role='owner',claimed=true,claim_code=null,claim_code_hash=null`;
     continue;
   }
+  const [existing] =
+    await sql`select claimed,claim_code from players where username=${username}`;
+  if (existing?.claimed || existing?.claim_code) continue;
   const code = `BSL-${randomBytes(3).toString("hex").toUpperCase()}`;
   const hash = await bcrypt.hash(code, 12);
-  await sql`insert into players(username,role,claim_code_hash) values(${username},${username === "IAlone" ? "owner" : "player"},${hash}) on conflict(username) do update set role=excluded.role,claim_code_hash=excluded.claim_code_hash`;
-  console.log(`${username.padEnd(12)} ${code}`);
+  await sql`insert into players(username,role,claim_code_hash,claim_code) values(${username},'player',${hash},${code}) on conflict(username) do update set claim_code_hash=excluded.claim_code_hash,claim_code=excluded.claim_code`;
 }
-console.log("\nSave these codes now. They are not stored in plain text.\n");
+console.log(
+  "League accounts ready. Player codes are available in IAlone's Admin panel.",
+);
 await sql.end();
