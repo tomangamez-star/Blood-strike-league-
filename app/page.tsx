@@ -27,6 +27,9 @@ import {
   MessageSquare,
   Megaphone,
   Sparkles,
+  Check,
+  Settings,
+  Hash,
 } from "lucide-react";
 const names = [
   "czarkills",
@@ -123,6 +126,11 @@ export default function Home() {
   useEffect(() => {
     load();
   }, []);
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => setToast(""), 2600);
+    return () => clearTimeout(id);
+  }, [toast]);
   const act = async (action: string, payload: any = {}) => {
     setBusy(true);
     setToast("");
@@ -134,11 +142,14 @@ export default function Home() {
       });
       const j: any = await r.json();
       if (!r.ok) throw Error(j.error);
-      setToast(j.message || "Saved");
+      if (["login", "claim", "logout"].includes(action))
+        setToast(j.message || "Done");
       setAuth(null);
       await load();
+      return j;
     } catch (e: any) {
       setToast(e.message || "Something went wrong");
+      return null;
     } finally {
       setBusy(false);
     }
@@ -219,9 +230,10 @@ export default function Home() {
         <div className="notice-drawer">
           <div>
             <b>NOTIFICATIONS</b>
-            <button onClick={() => act("markNotificationsRead")}>
-              MARK READ
-            </button>
+            <span className="notice-tools">
+              <button onClick={() => act("markNotificationsRead")}>MARK READ</button>
+              <button className="notice-close" onClick={() => setNotices(false)}><X /></button>
+            </span>
           </div>
           {data.notifications.length ? (
             data.notifications.slice(0, 8).map((n: any) => (
@@ -377,7 +389,7 @@ export default function Home() {
         </Page>
       )}
       {view === "dashboard" && data.me && (
-        <Profile data={data} act={act} busy={busy} />
+        <Profile data={data} act={act} busy={busy} setView={setView} />
       )}{" "}
       {view === "chat" && data.me && <Chat data={data} act={act} busy={busy} />}
       {view === "admin" && ["admin", "owner"].includes(data.me?.role || "") && (
@@ -472,7 +484,7 @@ function NetworkHome({ data, setView, act, busy }: any) {
               <div className="post-body">
                 <div className="post-head"><b>{m.sender_name}</b><span>@{m.username} · {new Date(m.created_at).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"})}</span><i /></div>
                 <p>{m.content}</p>
-                <div className="post-actions"><button><Heart /> React</button><button onClick={() => setView("chat")}><MessageSquare /> Reply</button><button><Radio /> Live</button></div>
+                <div className="post-actions"><button className={m.reacted_by_me ? "reacted" : ""} onClick={() => act("toggleReaction", { messageId: m.id })}><Heart /> {m.reaction_count || "React"}</button><button onClick={() => setView("chat")}><MessageSquare /> Reply</button><span className="delivered"><Check /> Delivered</span></div>
               </div>
             </article>
           )) : <LeaguePost data={data} setView={setView} />}
@@ -951,27 +963,32 @@ function ArenaList({ fixtures, data, act }: any) {
 }
 function Chat({ data, act, busy }: any) {
   const [channel, setChannel] = useState("public"),
-    [message, setMessage] = useState("");
+    [message, setMessage] = useState(""),
+    [sending, setSending] = useState(false);
   const list = data.messages.filter((m: any) => m.channel === channel);
-  const send = () => {
+  const send = async () => {
     if (message.trim()) {
-      act("sendMessage", { channel, content: message });
+      setSending(true);
+      const result = await act("sendMessage", { channel, content: message });
+      if (!result) { setSending(false); return; }
       setMessage("");
+      setSending(false);
     }
   };
   return (
-    <Page
-      title="LEAGUE CHAT"
-      sub="The live room for challenges, reactions and team plans"
-    >
-      <div className="chat-shell">
-        <aside>
+    <section className="chat-page">
+      <div className="chat-stage">
+        <div className="chat-topbar">
+          <div><span className="chat-symbol"><Hash /></span><div><small>STRIKE NETWORK</small><h1>{channel === "team" ? "Team room" : "Public arena"}</h1><p><i /> {data.onlinePlayers.length} strikers online</p></div></div>
+          <div className="chat-avatars">{data.onlinePlayers.slice(0, 4).map((p: any) => <Avatar key={p.id} player={p} size={34} />)}</div>
+        </div>
+        <div className="channel-switch">
           <button
             className={channel === "public" ? "active" : ""}
             onClick={() => setChannel("public")}
           >
             <MessageCircle />
-            Public arena
+            <span><b>Public arena</b><small>Everyone in the league</small></span>
           </button>
           <button
             disabled={!data.me.team_id}
@@ -979,40 +996,22 @@ function Chat({ data, act, busy }: any) {
             onClick={() => setChannel("team")}
           >
             <Shield />
-            Team room
+            <span><b>Team room</b><small>{data.me.team_id ? "Private duo channel" : "Form a duo to unlock"}</small></span>
           </button>
-          <div className="online-list">
-            <small>ONLINE NOW</small>
-            {data.onlinePlayers.map((p: any) => (
-              <div key={p.id}>
-                <Avatar player={p} size={32} />
-                <span>{p.display_name}</span>
-                <i />
-              </div>
-            ))}
-          </div>
-        </aside>
-        <section>
-          <div className="messages">
+        </div>
+        <div className="chat-conversation">
+          <div className="chat-day"><span>TODAY</span></div>
             {list.length ? (
               list.map((m: any) => (
                 <article
-                  className={m.sender_id === data.me.id ? "mine" : ""}
+                  className={`chat-message ${m.sender_id === data.me.id ? "mine" : ""}`}
                   key={m.id}
                 >
                   <Avatar player={m} size={38} />
-                  <div>
-                    <b>
-                      {m.sender_name}
-                      <small>@{m.username}</small>
-                    </b>
-                    <p>{m.content}</p>
-                    <time>
-                      {new Date(m.created_at).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </time>
+                  <div className="message-wrap">
+                    <div className="message-name"><b>{m.sender_name}</b><small>@{m.username}</small></div>
+                    <div className="message-bubble"><p>{m.content}</p></div>
+                    <div className="message-meta"><time>{new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>{m.sender_id === data.me.id && <span><Check /> Sent</span>}<button className={m.reacted_by_me ? "reacted" : ""} onClick={() => act("toggleReaction", { messageId: m.id })}><Heart />{m.reaction_count || ""}</button></div>
                   </div>
                 </article>
               ))
@@ -1025,8 +1024,9 @@ function Chat({ data, act, busy }: any) {
                 }
               />
             )}
-          </div>
-          <div className="composer">
+        </div>
+          <div className="chat-composer">
+            <button className="chat-add"><ImagePlus /></button>
             <input
               value={message}
               maxLength={300}
@@ -1038,16 +1038,15 @@ function Chat({ data, act, busy }: any) {
                   : "Message the league..."
               }
             />
-            <button disabled={busy || !message.trim()} onClick={send}>
-              <Send />
+            <button className="chat-send" disabled={busy || sending || !message.trim()} onClick={send}>
+              {sending ? <span className="sending-dot" /> : <Send />}
             </button>
           </div>
-        </section>
       </div>
-    </Page>
+    </section>
   );
 }
-function Profile({ data, act, busy }: any) {
+function Profile({ data, act, busy, setView }: any) {
   const me = data.me,
     [displayName, setDisplayName] = useState(me.display_name || me.username),
     [bio, setBio] = useState(me.bio || ""),
@@ -1076,6 +1075,11 @@ function Profile({ data, act, busy }: any) {
   };
   return (
     <Page title="MY PROFILE" sub="Your identity inside the Strike League">
+      {["admin", "owner"].includes(me.role) && (
+        <button className="admin-launch" onClick={() => setView("admin")}>
+          <span><Settings /><b>LEAGUE CONTROL</b><small>Fixtures, results, claim codes and admin roles</small></span><ChevronRight />
+        </button>
+      )}
       <section className="profile-hero" style={{ "--accent": accent } as any}>
         <div className="profile-glow" />
         <label className="avatar-edit">
