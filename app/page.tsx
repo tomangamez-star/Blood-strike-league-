@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   ChevronRight,
@@ -30,6 +30,13 @@ import {
   Check,
   Settings,
   Hash,
+  ChevronLeft,
+  Flame,
+  Plus,
+  Trash2,
+  Clock3,
+  BadgeCheck,
+  UserCheck,
 } from "lucide-react";
 const names = [
   "czarkills",
@@ -51,6 +58,7 @@ type Player = {
   bio?: string;
   avatar_data?: string | null;
   accent_color?: string;
+  verified?: boolean;
 };
 type Team = {
   id: number;
@@ -74,6 +82,8 @@ type Fixture = {
   away_score: number | null;
   scheduled_at: string | null;
   status: string;
+  hype_count?: number;
+  hyped_by_me?: boolean;
 };
 type League = {
   players: Player[];
@@ -88,6 +98,9 @@ type League = {
   activity: any[];
   onlinePlayers: any[];
   checkins: any[];
+  individualFixtures: any[];
+  individualStandings: any[];
+  duels: any[];
 };
 const fallback: League = {
   players: names.map((username, i) => ({
@@ -108,6 +121,9 @@ const fallback: League = {
   activity: [],
   onlinePlayers: [],
   checkins: [],
+  individualFixtures: [],
+  individualStandings: [],
+  duels: [],
 };
 export default function Home() {
   const [data, setData] = useState<League>(fallback),
@@ -142,7 +158,7 @@ export default function Home() {
       });
       const j: any = await r.json();
       if (!r.ok) throw Error(j.error);
-      if (["login", "claim", "logout"].includes(action))
+      if (["login", "claim", "register", "logout"].includes(action))
         setToast(j.message || "Done");
       setAuth(null);
       await load();
@@ -264,13 +280,13 @@ export default function Home() {
               <span /> BLOOD STRIKE COMMUNITY LEAGUE
             </div>
             <h1>
-              FORM YOUR DUO.
+              ENTER THE NETWORK.
               <br />
-              <em>RULE THE LEAGUE.</em>
+              <em>RULE THE ARENA.</em>
             </h1>
             <p>
-              Eight contenders. Four teams. One table. Choose your teammate,
-              forge a name and fight your way to the top.
+              Join the network, fight the individual league, form a duo and
+              challenge rivals whenever you&apos;re ready.
             </p>
             <div className="hero-actions">
               <button
@@ -290,13 +306,13 @@ export default function Home() {
           <section className="stats">
             <article>
               <small>REGISTERED</small>
-              <strong>08</strong>
+              <strong>{String(data.players.filter(p => p.claimed).length).padStart(2, "0")}</strong>
               <span>PLAYERS</span>
             </article>
             <article>
               <small>TEAMS FORMED</small>
               <strong>{String(data.teams.length).padStart(2, "0")}</strong>
-              <span>OF 04</span>
+              <span>ACTIVE DUOS</span>
             </article>
             <article>
               <small>MATCHES PLAYED</small>
@@ -329,40 +345,8 @@ export default function Home() {
           </section>
           </>
         ))}
-      {view === "standings" && (
-        <Page
-          title="LEAGUE STANDINGS"
-          sub="Every round matters. Win: 3 points · Draw: 1 point"
-        >
-          <div className="table-card">
-            <Standings teams={standings} full />
-          </div>
-          <div className="team-grid league-teams">
-            {data.teams.map((t) => (
-              <article className="team-card" key={t.id}>
-                <Shield />
-                <small>DUO</small>
-                <h3>{t.name || "USER & USER"}</h3>
-                <div>
-                  <span>{t.player1}</span>
-                  <b>+</b>
-                  <span>{t.player2}</span>
-                </div>
-              </article>
-            ))}
-          </div>
-        </Page>
-      )}
-      {view === "fixtures" && (
-        <Page
-          title="FIXTURES & RESULTS"
-          sub="Scheduled battles and confirmed scores"
-        >
-          <div className="fixture-grid">
-            <ArenaList fixtures={data.fixtures} data={data} act={act} />
-          </div>
-        </Page>
-      )}
+      {view === "standings" && <LeagueHub data={data} teamStandings={standings} />}
+      {view === "fixtures" && <ArenaHub data={data} act={act} busy={busy} />}
       {view === "teams" && (
         <Page
           title="TEAM ROSTERS"
@@ -374,7 +358,7 @@ export default function Home() {
                 <article className="team-card" key={t.id}>
                   <Shield />
                   <small>OFFICIAL DUO</small>
-                  <h3>{t.name || "USER & USER"}</h3>
+                  <h3>{t.name || "UNNAMED DUO"}</h3>
                   <div>
                     <span>{t.player1}</span>
                     <b>+</b>
@@ -435,7 +419,6 @@ export default function Home() {
 function NetworkHome({ data, setView, act, busy }: any) {
   const [post, setPost] = useState("");
   const [feed, setFeed] = useState("all");
-  const next = data.fixtures.find((f: Fixture) => f.status !== "completed");
   const myTeam = data.teams.find((t: Team) => t.id === data.me.team_id);
   const posts = data.messages
     .filter((m: any) => feed === "team" ? m.channel === "team" : m.channel === "public")
@@ -453,19 +436,7 @@ function NetworkHome({ data, setView, act, busy }: any) {
           <button aria-label="Search"><Search /></button>
         </div>
 
-        <article className="next-battle">
-          <div className="battle-noise" />
-          <div className="battle-label"><Radio /> NEXT MATCH</div>
-          {next ? <>
-            <div className="battle-clash">
-              <div><span>{next.home_name || "USER & USER"}</span><small>HOME SQUAD</small></div>
-              <strong>VS</strong>
-              <div><span>{next.away_name || "USER & USER"}</span><small>AWAY SQUAD</small></div>
-            </div>
-            <div className="battle-meta"><Countdown date={next.scheduled_at} /><span>{next.scheduled_at ? new Date(next.scheduled_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "DATE TO BE ANNOUNCED"}</span></div>
-          </> : <div className="battle-empty"><Sparkles /><b>Your next battle is being prepared</b><span>Watch this space, striker.</span></div>}
-          <button className="battle-open" onClick={() => setView("fixtures")}>OPEN ARENA <ChevronRight /></button>
-        </article>
+        <MatchCarousel data={data} act={act} setView={setView} />
 
         <div className="quick-post">
           <Avatar player={data.me} size={44} />
@@ -478,6 +449,7 @@ function NetworkHome({ data, setView, act, busy }: any) {
         </div>
 
         <div className="network-feed">
+          {feed === "all" && data.duels.filter((d:any)=>d.status === "open" || d.status === "scheduled").slice(0,2).map((d:any)=><FeedDuel key={d.id} duel={d} me={data.me} act={act} setView={setView}/>)}
           {feed === "league" ? <LeaguePost data={data} setView={setView} /> : posts.length ? posts.map((m: any) => (
             <article className="feed-post" key={m.id}>
               <Avatar player={m} size={43} />
@@ -505,10 +477,36 @@ function NetworkHome({ data, setView, act, busy }: any) {
         <RailTitle icon={<Users />} title="Online now" action={() => setView("chat")} />
         <div className="online-grid">{data.onlinePlayers.slice(0, 6).map((p: any) => <button key={p.id} onClick={() => setView("chat")}><Avatar player={p} size={38} /><span><b>{p.display_name || p.username}</b><small>Online</small></span><i /></button>)}</div>
         <div className="duo-card"><small>YOUR DUO</small><h3>{myTeam?.name || "Find your teammate"}</h3><p>{myTeam ? `${myTeam.player1} + ${myTeam.player2}` : "The arena is better with backup."}</p><button onClick={() => setView("dashboard")}>{myTeam ? "TEAM HQ" : "BUILD A TEAM"}<ChevronRight /></button></div>
+        <div className="challenge-card"><Swords /><div><small>FEELING DANGEROUS?</small><b>CALL OUT A RIVAL</b></div><button onClick={() => setView("fixtures")}>CHALLENGE <ChevronRight /></button></div>
       </aside>
     </section>
   );
 }
+
+function MatchCarousel({ data, act, setView }: any) {
+  const rail = useRef<HTMLDivElement>(null), [active, setActive] = useState(0);
+  const all = [
+    ...data.individualFixtures.map((m: any) => ({ ...m, kind: "individual", label: "OFFICIAL 1V1", home: m.home_name, away: m.away_name, date: m.scheduled_at })),
+    ...data.fixtures.map((m: any) => ({ ...m, kind: "team", label: "DUO LEAGUE", home: m.home_name, away: m.away_name, date: m.scheduled_at })),
+    ...data.duels.filter((m: any) => m.status === "scheduled" || m.status === "completed").map((m: any) => ({ ...m, kind: "duel", label: "EXHIBITION", home: m.challenger_name, away: m.opponent_name, date: m.scheduled_at, home_score: m.challenger_score, away_score: m.opponent_score })),
+  ].filter((m: any) => m.date && m.status !== "postponed").sort((a: any,b: any) => +new Date(a.date)-+new Date(b.date));
+  const today = new Date().toDateString(), todayMatches = all.filter((m: any) => new Date(m.date).toDateString() === today), upcoming = all.filter((m: any) => m.status !== "completed" && +new Date(m.date) >= Date.now());
+  const matches = todayMatches.length ? todayMatches : upcoming.slice(0, 5);
+  const move = (direction: number) => rail.current?.scrollBy({ left: rail.current.clientWidth * direction, behavior: "smooth" });
+  if (!matches.length) return <article className="next-battle"><div className="battle-noise" /><div className="battle-label"><Radio /> MATCH CENTER</div><div className="battle-empty"><Sparkles /><b>The arena is waiting</b><span>Upcoming official fixtures will appear here.</span></div><button className="battle-open" onClick={() => setView("fixtures")}>OPEN ARENA <ChevronRight /></button></article>;
+  return <div className="match-carousel-wrap">
+    <div className="carousel-title"><span><Radio /> {todayMatches.length ? `${matches.length} MATCH${matches.length === 1 ? "" : "ES"} TODAY` : "NEXT MATCHES"}</span><div><button onClick={() => move(-1)}><ChevronLeft /></button><b>{active + 1} / {matches.length}</b><button onClick={() => move(1)}><ChevronRight /></button></div></div>
+    <div className="match-carousel" ref={rail} onScroll={e => setActive(Math.round(e.currentTarget.scrollLeft / Math.max(1,e.currentTarget.clientWidth)))}>
+      {matches.map((m: any) => <article className={`next-battle match-slide ${m.kind}`} key={`${m.kind}-${m.id}`}>
+        <div className="battle-noise" /><div className="battle-label"><span>{m.label}</span><i className={m.status}>{m.status}</i></div>
+        <div className="battle-clash"><div><MatchAvatar name={m.home} src={m.home_avatar} accent={m.home_accent} /><span>{m.home}</span><small>{m.kind === "team" ? "HOME DUO" : "HOME"}</small></div><strong>{m.status === "completed" ? `${m.home_score}—${m.away_score}` : "VS"}</strong><div><MatchAvatar name={m.away} src={m.away_avatar} accent={m.away_accent} /><span>{m.away}</span><small>{m.kind === "team" ? "AWAY DUO" : "AWAY"}</small></div></div>
+        <div className="battle-meta"><Countdown date={m.date} /><span>{new Date(m.date).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</span></div>
+        <div className="battle-actions"><button className={m.hyped_by_me ? "hyped" : ""} onClick={() => act("toggleMatchHype", { kind: m.kind, matchId: m.id })}><Flame /> {m.hype_count || 0} HYPE</button><button onClick={() => setView("fixtures")}>MATCH CENTER <ChevronRight /></button></div>
+      </article>)}
+    </div><div className="carousel-dots">{matches.map((_: any,i: number) => <i key={i} className={i === active ? "active" : ""} />)}</div>
+  </div>;
+}
+function MatchAvatar({ name, src, accent }: any) { return src ? <img className="match-avatar" src={src} alt="" style={{borderColor:accent}} /> : <span className="match-avatar fallback" style={{borderColor:accent,color:accent}}>{String(name || "?").slice(0,2).toUpperCase()}</span>; }
 
 function Countdown({ date }: { date: string | null }) {
   const [now, setNow] = useState(Date.now());
@@ -520,6 +518,7 @@ function Countdown({ date }: { date: string | null }) {
 function LeaguePost({ data, setView }: any) {
   return <article className="feed-post league-post"><span className="league-badge"><Trophy /></span><div className="post-body"><div className="post-head"><b>Strike League</b><span>Official transmission</span><i /></div><h3>SEASON 01 IS LIVE</h3><p>Form your duo, get match-ready and climb the table. Every battle writes the story.</p><button className="post-cta" onClick={() => setView("standings")}>VIEW LEAGUE TABLE <ChevronRight /></button></div></article>;
 }
+function FeedDuel({ duel:d, me, act, setView }:any){const canAccept=d.status==="open"&&d.challenger_id!==me.id;return <article className="feed-post feed-duel"><span className="duel-feed-icon"><Swords/></span><div className="post-body"><div className="post-head"><b>{d.challenger_name}</b><span>posted a {d.status === "open" ? "challenge" : "confirmed duel"}</span><i/></div><h3>{d.challenger_name} <em>VS</em> {d.opponent_name||"WHO WANTS IT?"}</h3><p>{d.message||`${d.mode} — step into the arena.`}</p><div className="feed-duel-actions"><button className={d.hyped_by_me?"hyped":""} onClick={()=>act("toggleMatchHype",{kind:"duel",matchId:d.id})}><Flame/>{d.hype_count||0} HYPE</button>{canAccept&&<button className="accept" onClick={()=>act("respondDuel",{duelId:d.id,accept:true})}>ACCEPT CHALLENGE</button>}<button onClick={()=>setView("fixtures")}>OPEN MATCH <ChevronRight/></button></div></div></article>}
 function RailTitle({ icon, title, action }: any) { return <div className="rail-title"><span>{icon}{title}</span><button onClick={action}>VIEW ALL</button></div>; }
 function Page({ title, sub, children }: any) {
   return (
@@ -578,13 +577,13 @@ function FixtureList({
                   : "DATE TBA"}
               </small>
               <b>
-                {f.home_name || "USER & USER"}{" "}
+                {f.home_name || "UNNAMED DUO"}{" "}
                 <em>
                   {f.status === "completed"
                     ? `${f.home_score} — ${f.away_score}`
                     : "VS"}
                 </em>{" "}
-                {f.away_name || "USER & USER"}
+                {f.away_name || "UNNAMED DUO"}
               </b>
             </div>
             <span className={f.status}>{f.status}</span>
@@ -619,7 +618,7 @@ function Standings({ teams, full = false }: { teams: Team[]; full?: boolean }) {
             <span>{i + 1}</span>
             <span>
               <i>{t.name?.slice(0, 2).toUpperCase() || "UU"}</i>
-              {t.name || "USER & USER"}
+              {t.name || "UNNAMED DUO"}
             </span>
             <span>{t.wins + t.draws + t.losses}</span>
             <span>{t.wins}</span>
@@ -639,26 +638,65 @@ function Standings({ teams, full = false }: { teams: Team[]; full?: boolean }) {
     </div>
   );
 }
+function LeagueHub({ data, teamStandings }: any) {
+  const [tab, setTab] = useState("individual");
+  return <Page title="LEAGUE TABLES" sub="Official results only · Win: 3 points · Draw: 1 point">
+    <div className="league-switch"><button className={tab === "individual" ? "active" : ""} onClick={() => setTab("individual")}><UserRound />INDIVIDUAL LEAGUE<span>{data.individualStandings.length} players</span></button><button className={tab === "duo" ? "active" : ""} onClick={() => setTab("duo")}><Users />DUO LEAGUE<span>{data.teams.length} teams</span></button></div>
+    {tab === "individual" ? <IndividualTable players={data.individualStandings} /> : <><div className="table-card"><Standings teams={teamStandings} full /></div><div className="team-grid league-teams">{data.teams.map((t: Team) => <article className="team-card" key={t.id}><Shield /><small>OFFICIAL DUO</small><h3>{t.name || "UNNAMED DUO"}</h3><div><span>{t.player1}</span><b>+</b><span>{t.player2}</span></div></article>)}</div></>}
+  </Page>;
+}
+function IndividualTable({ players }: any) {
+  return <div className="individual-table table-card"><div className="iplayer-row ihead"><span>#</span><span>PLAYER</span><span>P</span><span>W</span><span>D</span><span>L</span><span>RD</span><span>PTS</span></div>{players.length ? players.map((p: any,i: number) => <div className="iplayer-row" key={p.id}><strong>{i+1}</strong><span className="iplayer"><Avatar player={p} size={34} /><span><b>{p.display_name}</b><small>@{p.username}</small></span></span><span>{p.played}</span><span>{p.wins}</span><span>{p.draws}</span><span>{p.losses}</span><span>{p.rounds_for-p.rounds_against > 0 ? "+" : ""}{p.rounds_for-p.rounds_against}</span><b className="points">{p.points}</b></div>) : <Empty text="The individual table activates after players join." />}</div>;
+}
+function ArenaHub({ data, act, busy }: any) {
+  const [tab, setTab] = useState("individual"), [challenge, setChallenge] = useState(false);
+  const individual = [...data.individualFixtures].sort(matchSort), teams = [...data.fixtures].sort(matchSort), duels = [...data.duels].sort(matchSort);
+  return <Page title="MATCH CENTER" sub="Official fixtures, results and community challenges">
+    <div className="arena-command"><div><small>STRIKE NETWORK</small><b>Choose your battlefield</b></div>{data.me && <button onClick={() => setChallenge(true)}><Plus /> CREATE 1V1 CHALLENGE</button>}</div>
+    <div className="arena-tabs">{[["individual","1V1 League"],["duo","Duo League"],["duels","Community Duels"]].map(([k,l]) => <button key={k} className={tab===k?"active":""} onClick={()=>setTab(k)}>{k === "individual" ? <UserRound/> : k === "duo" ? <Users/> : <Swords/>}<span>{l}<small>{k === "individual" ? individual.length : k === "duo" ? teams.length : duels.length} matches</small></span></button>)}</div>
+    <div className="match-section-head"><span>{tab === "duels" ? "EXHIBITION — DOES NOT AFFECT TABLES" : "OFFICIAL SEASON 01 FIXTURES"}</span><i>{tab === "duels" ? "SOCIAL" : "RANKED"}</i></div>
+    <div className="match-center-grid">{tab === "individual" ? individual.length ? individual.map((m:any)=><OfficialMatchCard key={m.id} match={m} kind="individual" act={act}/>) : <Empty text="No individual fixtures have been scheduled."/> : tab === "duo" ? teams.length ? teams.map((m:any)=><OfficialMatchCard key={m.id} match={m} kind="team" act={act}/>) : <Empty text="No duo fixtures have been scheduled."/> : duels.length ? duels.map((d:any)=><DuelCard key={d.id} duel={d} data={data} act={act}/>) : <Empty text="No challenges yet. Call out the first rival."/>}</div>
+    {challenge && <ChallengeModal data={data} act={act} busy={busy} close={() => setChallenge(false)} />}
+  </Page>;
+}
+function matchSort(a:any,b:any){ if(a.status === "completed" && b.status !== "completed") return 1;if(b.status === "completed" && a.status !== "completed") return -1;return +(new Date(a.scheduled_at || a.created_at || 8640000000000000)) - +(new Date(b.scheduled_at || b.created_at || 8640000000000000)); }
+function OfficialMatchCard({ match:m, kind, act }: any) {
+  const home = m.home_name || "UNNAMED DUO", away = m.away_name || "UNNAMED DUO";
+  return <article className={`official-match ${kind}`}><div className="official-top"><span>{kind === "individual" ? "OFFICIAL 1V1" : "DUO LEAGUE"}</span><i className={m.status}>{m.status}</i></div><div className="official-versus"><div><MatchAvatar name={home} src={m.home_avatar} accent={m.home_accent}/><b>{home}</b></div><strong>{m.status === "completed" ? `${m.home_score} — ${m.away_score}` : "VS"}</strong><div><MatchAvatar name={away} src={m.away_avatar} accent={m.away_accent}/><b>{away}</b></div></div><div className="official-info"><span><CalendarDays />{m.scheduled_at ? new Date(m.scheduled_at).toLocaleString([], {dateStyle:"medium",timeStyle:"short"}) : "TIME TBA"}</span><button className={m.hyped_by_me ? "hyped" : ""} onClick={() => act("toggleMatchHype",{kind,matchId:m.id})}><Flame />{m.hype_count || 0}</button></div></article>;
+}
+function DuelCard({ duel:d, data, act }: any) {
+  const [when,setWhen]=useState(""); const mine = data.me && [d.challenger_id,d.opponent_id].includes(data.me.id), canAnswer = data.me && data.me.id !== d.challenger_id && (d.status === "open" || (d.status === "pending" && d.opponent_id === data.me.id)), canConfirm = mine && d.status === "scheduling" && d.proposed_by !== data.me.id;
+  return <article className="duel-match"><div className="official-top"><span>COMMUNITY EXHIBITION</span><i className={d.status}>{d.status}</i></div><div className="duel-people"><div><MatchAvatar name={d.challenger_name} src={d.challenger_avatar} accent={d.challenger_accent}/><span><b>{d.challenger_name}</b><small>CHALLENGER</small></span></div><strong>{d.status === "completed" ? `${d.challenger_score}—${d.opponent_score}` : "VS"}</strong><div><MatchAvatar name={d.opponent_name || "OPEN"} src={d.opponent_avatar} accent={d.opponent_accent}/><span><b>{d.opponent_name || "OPEN SLOT"}</b><small>{d.opponent_name ? "OPPONENT" : "ACCEPT TO ENTER"}</small></span></div></div><div className="duel-mode"><Gamepad2 />{d.mode}<span>{d.message || "No trash talk. Just business."}</span></div>{d.scheduled_at && <div className="duel-time"><Clock3 />{new Date(d.scheduled_at).toLocaleString([], {dateStyle:"medium",timeStyle:"short"})}</div>}{d.proposed_at && d.status === "scheduling" && <div className="time-proposal"><b>PROPOSED TIME</b><span>{new Date(d.proposed_at).toLocaleString()}</span></div>}<div className="duel-actions"><button className={d.hyped_by_me?"hyped":""} onClick={()=>act("toggleMatchHype",{kind:"duel",matchId:d.id})}><Flame />{d.hype_count || 0} HYPE</button>{canAnswer && <button className="accept" onClick={()=>act("respondDuel",{duelId:d.id,accept:true})}>ACCEPT</button>}{data.me && d.status === "pending" && d.opponent_id === data.me.id && <button onClick={()=>act("respondDuel",{duelId:d.id,accept:false})}>DECLINE</button>}{canConfirm && <button className="accept" onClick={()=>act("confirmDuelTime",{duelId:d.id})}>CONFIRM TIME</button>}</div>{mine && ["accepted","scheduling","scheduled"].includes(d.status) && <div className="duel-schedule"><input type="datetime-local" value={when} onChange={e=>setWhen(e.target.value)}/><button disabled={!when} onClick={()=>act("proposeDuelTime",{duelId:d.id,scheduledAt:when})}>{d.status === "scheduled" ? "PROPOSE NEW TIME" : "PROPOSE TIME"}</button></div>}{mine && !["completed","declined"].includes(d.status) && <button className="cancel-duel" onClick={()=>act("cancelDuel",{duelId:d.id})}>CANCEL CHALLENGE</button>}</article>;
+}
+function ChallengeModal({ data, act, busy, close }: any) {
+  const [target,setTarget]=useState(""),[mode,setMode]=useState("1v1 — Squad Fight"),[message,setMessage]=useState("");
+  const submit=async()=>{const done=await act("createDuel",{opponentId:target?+target:null,mode,message});if(done)close();};
+  return <Modal close={close}><div className="auth-title challenge-title"><Swords/><h2>CREATE A CHALLENGE</h2><p>Call out one player or leave it open to the network.</p></div><label>Opponent<select value={target} onChange={e=>setTarget(e.target.value)}><option value="">Open challenge — anyone can accept</option>{data.players.filter((p:Player)=>p.claimed&&p.id!==data.me.id).map((p:Player)=><option key={p.id} value={p.id}>{p.display_name||p.username}</option>)}</select></label><label>Mode<input value={mode} maxLength={30} onChange={e=>setMode(e.target.value)}/></label><label>Callout message<textarea value={message} maxLength={160} placeholder="Optional rules or trash talk..." onChange={e=>setMessage(e.target.value)}/></label><button className="primary wide" disabled={busy||!mode.trim()} onClick={submit}>{target?"SEND DIRECT CHALLENGE":"POST OPEN CHALLENGE"}</button><p className="exhibition-note">Exhibition matches never affect official league points.</p></Modal>;
+}
 function AuthModal({ mode, setMode, players, act, busy }: any) {
   const [u, setU] = useState(""),
     [p, setP] = useState(""),
-    [code, setCode] = useState("");
+    [code, setCode] = useState(""),
+    [display, setDisplay] = useState("");
   if (mode === "choice")
     return (
       <Modal close={() => setMode(null)}>
         <div className="auth-title">
           <Crown />
           <h2>ENTER THE ARENA</h2>
-          <p>Competitors sign in. Everyone else enters as a guest.</p>
+          <p>Join the growing Blood Strike network or return to your account.</p>
         </div>
-        <button className="primary wide" onClick={() => setMode("login")}>
+        <button className="primary wide" onClick={() => setMode("register")}>
+          CREATE MY ACCOUNT
+        </button>
+        <button className="ghost wide" onClick={() => setMode("login")}>
           PLAYER LOGIN
         </button>
-        <button className="ghost wide" onClick={() => setMode(null)}>
+        <button className="ghost wide subtle" onClick={() => setMode(null)}>
           CONTINUE AS GUEST
         </button>
         <button className="text-btn" onClick={() => setMode("claim")}>
-          First time? Claim your player profile
+          Original eight? Claim your reserved profile
         </button>
       </Modal>
     );
@@ -666,18 +704,19 @@ function AuthModal({ mode, setMode, players, act, busy }: any) {
     <Modal close={() => setMode(null)}>
       <div className="auth-title">
         <Shield />
-        <h2>{mode === "claim" ? "CLAIM YOUR PROFILE" : "PLAYER LOGIN"}</h2>
+        <h2>{mode === "claim" ? "CLAIM YOUR PROFILE" : mode === "register" ? "JOIN STRIKE NETWORK" : "PLAYER LOGIN"}</h2>
       </div>
+      {mode === "register" && <label>Display name<input value={display} maxLength={24} onChange={e => setDisplay(e.target.value)} placeholder="What everyone will see" /></label>}
       <label>
         Blood Strike username
-        <select value={u} onChange={(e) => setU(e.target.value)}>
+        {mode === "claim" ? <select value={u} onChange={(e) => setU(e.target.value)}>
           <option value="">Select username</option>
           {players
-            .filter((x: Player) => (mode === "login" ? x.claimed : !x.claimed))
+            .filter((x: Player) => !x.claimed)
             .map((x: Player) => (
               <option key={x.id}>{x.username}</option>
             ))}
-        </select>
+        </select> : <input value={u} maxLength={20} autoCapitalize="none" onChange={e => setU(e.target.value)} placeholder="Your exact in-game username" />}
       </label>
       {mode === "claim" && (
         <label>
@@ -701,17 +740,15 @@ function AuthModal({ mode, setMode, players, act, busy }: any) {
       <button
         disabled={busy}
         className="primary wide"
-        onClick={() => act(mode, { username: u, password: p, claimCode: code })}
+        onClick={() => act(mode, { username: u, displayName: display, password: p, claimCode: code })}
       >
-        {busy ? "PLEASE WAIT..." : mode === "claim" ? "CLAIM PROFILE" : "LOGIN"}
+        {busy ? "PLEASE WAIT..." : mode === "claim" ? "CLAIM PROFILE" : mode === "register" ? "CREATE ACCOUNT" : "LOGIN"}
       </button>
       <button
         className="text-btn"
-        onClick={() => setMode(mode === "claim" ? "login" : "claim")}
+        onClick={() => setMode(mode === "login" ? "register" : "login")}
       >
-        {mode === "claim"
-          ? "Already claimed? Login"
-          : "First time? Claim profile"}
+        {mode === "login" ? "New here? Create an account" : "Already registered? Login"}
       </button>
     </Modal>
   );
@@ -1105,7 +1142,7 @@ function Profile({ data, act, busy, setView }: any) {
           />
         </label>
         <div>
-          <small>{me.role.toUpperCase()}</small>
+          <small className="profile-role">{me.role.toUpperCase()} {me.verified && <BadgeCheck />}</small>
           <h2>{displayName}</h2>
           <p>@{me.username}</p>
           <span className="status-pill">
@@ -1345,17 +1382,29 @@ function ActivityFeed({ items }: any) {
 function Admin({ data, act, busy }: any) {
   const [h, setH] = useState(""),
     [a, setA] = useState(""),
-    [date, setDate] = useState("");
+    [date, setDate] = useState(""),
+    [ph, setPh] = useState(""),
+    [pa, setPa] = useState(""),
+    [pdate, setPdate] = useState("");
   return (
     <Page title="LEAGUE CONTROL" sub="Owner and administrator operations">
+      <div className="admin-summary"><article><UserRound/><span><b>{data.players.filter((p:Player)=>p.claimed).length}</b>MEMBERS</span></article><article><Swords/><span><b>{data.individualFixtures.length}</b>1V1 FIXTURES</span></article><article><Users/><span><b>{data.fixtures.length}</b>DUO FIXTURES</span></article><article><Radio/><span><b>{data.duels.length}</b>EXHIBITIONS</span></article></div>
       <div className="admin-grid">
-        <Panel title="CREATE FIXTURE" icon={<CalendarDays />}>
+        <Panel title="CREATE 1V1 FIXTURE" icon={<UserRound />}>
+          <div className="form-row">
+            <select value={ph} onChange={(e) => setPh(e.target.value)}><option value="">Home player</option>{data.players.filter((p:Player)=>p.claimed).map((p:Player)=><option value={p.id} key={p.id}>{p.display_name||p.username}</option>)}</select>
+            <select value={pa} onChange={(e) => setPa(e.target.value)}><option value="">Away player</option>{data.players.filter((p:Player)=>p.claimed).map((p:Player)=><option value={p.id} key={p.id}>{p.display_name||p.username}</option>)}</select>
+            <input type="datetime-local" value={pdate} onChange={e=>setPdate(e.target.value)}/>
+          </div>
+          <button className="primary" disabled={busy||!ph||!pa||ph===pa} onClick={()=>act("createIndividualFixture",{homePlayerId:+ph,awayPlayerId:+pa,scheduledAt:pdate||null})}>ADD OFFICIAL 1V1</button>
+        </Panel>
+        <Panel title="CREATE DUO FIXTURE" icon={<CalendarDays />}>
           <div className="form-row">
             <select value={h} onChange={(e) => setH(e.target.value)}>
               <option value="">Home team</option>
               {data.teams.map((t: Team) => (
                 <option value={t.id} key={t.id}>
-                  {t.name || "USER & USER"}
+                  {t.name || "UNNAMED DUO"}
                 </option>
               ))}
             </select>
@@ -1363,7 +1412,7 @@ function Admin({ data, act, busy }: any) {
               <option value="">Away team</option>
               {data.teams.map((t: Team) => (
                 <option value={t.id} key={t.id}>
-                  {t.name || "USER & USER"}
+                  {t.name || "UNNAMED DUO"}
                 </option>
               ))}
             </select>
@@ -1384,13 +1433,21 @@ function Admin({ data, act, busy }: any) {
               })
             }
           >
-            ADD FIXTURE
+            ADD DUO FIXTURE
           </button>
         </Panel>
-        <Panel title="UPDATE RESULTS" icon={<Trophy />}>
-          {data.fixtures.map((f: Fixture) => (
-            <ResultRow key={f.id} f={f} act={act} />
-          ))}
+        <Panel title="MANAGE 1V1 FIXTURES" icon={<Trophy />}>
+          {data.individualFixtures.length ? data.individualFixtures.map((f:any)=><AdminMatchRow key={f.id} f={f} kind="individual" act={act}/>) : <p className="muted">No individual fixtures yet.</p>}
+        </Panel>
+        <Panel title="MANAGE DUO FIXTURES" icon={<Users />}>
+          {data.fixtures.length ? data.fixtures.map((f:any)=><AdminMatchRow key={f.id} f={f} kind="team" act={act}/>) : <p className="muted">No duo fixtures yet.</p>}
+        </Panel>
+        <Panel title="COMMUNITY DUELS" icon={<Swords />}>
+          {data.duels.length ? data.duels.map((f:any)=><AdminMatchRow key={f.id} f={{...f,home_name:f.challenger_name,away_name:f.opponent_name,home_score:f.challenger_score,away_score:f.opponent_score}} kind="duel" act={act}/>) : <p className="muted">No exhibition duels yet.</p>}
+        </Panel>
+        <Panel title="MEMBER VERIFICATION" icon={<UserCheck />}>
+          <p className="muted">New accounts can enter immediately. Verification marks trusted league members.</p>
+          {data.players.filter((p:Player)=>p.claimed&&p.role!=="owner").map((p:Player)=><article className="role" key={p.id}><span><b>{p.display_name||p.username}</b><small>@{p.username} · {p.verified?"VERIFIED":"NEW MEMBER"}</small></span><button onClick={()=>act("setVerified",{playerId:p.id,verified:!p.verified})}>{p.verified?"REMOVE BADGE":"VERIFY"}</button></article>)}
         </Panel>
         {data.me.role === "owner" && (
           <Panel title="PLAYER CLAIM CODES" icon={<Shield />}>
@@ -1444,15 +1501,16 @@ function Admin({ data, act, busy }: any) {
     </Page>
   );
 }
-function ResultRow({ f, act }: any) {
+function AdminMatchRow({ f, act, kind }: any) {
   const [h, setH] = useState(f.home_score ?? ""),
-    [a, setA] = useState(f.away_score ?? "");
+    [a, setA] = useState(f.away_score ?? ""),
+    [date,setDate]=useState(f.scheduled_at ? new Date(f.scheduled_at).toISOString().slice(0,16) : "");
+  const resultAction=kind==="individual"?"setIndividualResult":kind==="duel"?"setDuelResult":"setResult";
   return (
-    <article className="result-row">
-      <b>
-        {f.home_name} <em>vs</em> {f.away_name}
-      </b>
-      <div>
+    <article className="admin-match-row">
+      <div className="admin-match-name"><b>{f.home_name} <em>vs</em> {f.away_name||"OPEN"}</b><small>{String(f.status).toUpperCase()}</small></div>
+      <div className="admin-time-edit"><input type="datetime-local" value={date} onChange={e=>setDate(e.target.value)}/><button onClick={()=>act("updateMatch",{kind,matchId:f.id,scheduledAt:date||null,status:"scheduled"})}><Clock3/>TIME</button></div>
+      {f.away_name && <div className="admin-score-edit">
         <input
           type="number"
           min="0"
@@ -1468,12 +1526,13 @@ function ResultRow({ f, act }: any) {
         />
         <button
           onClick={() =>
-            act("setResult", { fixtureId: f.id, homeScore: +h, awayScore: +a })
+            act(resultAction, kind==="duel" ? {duelId:f.id,homeScore:+h,awayScore:+a} : { fixtureId: f.id, homeScore: +h, awayScore: +a })
           }
         >
-          SAVE
+          SAVE SCORE
         </button>
-      </div>
+      </div>}
+      <div className="admin-row-actions"><button onClick={()=>act("updateMatch",{kind,matchId:f.id,scheduledAt:date||null,status:"postponed"})}>POSTPONE</button><button className="remove" onClick={()=>{if(confirm("Remove this match permanently?"))act("deleteMatch",{kind,matchId:f.id})}}><Trash2/>REMOVE</button></div>
     </article>
   );
 }
