@@ -125,6 +125,36 @@ const fallback: League = {
   individualStandings: [],
   duels: [],
 };
+function optimisticLeague(current: League, action: string, payload: any, tempId: number): League {
+  if (!current.me) return current;
+  if (action === "sendMessage") {
+    const temp = {
+      id: tempId,
+      sender_id: current.me.id,
+      sender_name: current.me.display_name || current.me.username,
+      username: current.me.username,
+      avatar_data: current.me.avatar_data,
+      accent_color: current.me.accent_color,
+      channel: payload.channel === "team" ? "team" : "public",
+      team_id: payload.channel === "team" ? current.me.team_id : null,
+      content: String(payload.content || ""),
+      created_at: new Date().toISOString(),
+      reaction_count: 0,
+      reacted_by_me: false,
+      optimistic: true,
+    };
+    return { ...current, messages: [...current.messages, temp] };
+  }
+  if (action === "toggleReaction") return { ...current, messages: current.messages.map((m: any) => m.id === payload.messageId ? { ...m, reacted_by_me: !m.reacted_by_me, reaction_count: Math.max(0, Number(m.reaction_count || 0) + (m.reacted_by_me ? -1 : 1)) } : m) };
+  if (action === "toggleMatchHype") {
+    const toggle = (m: any) => m.id === payload.matchId ? { ...m, hyped_by_me: !m.hyped_by_me, hype_count: Math.max(0, Number(m.hype_count || 0) + (m.hyped_by_me ? -1 : 1)) } : m;
+    if (payload.kind === "individual") return { ...current, individualFixtures: current.individualFixtures.map(toggle) };
+    if (payload.kind === "team") return { ...current, fixtures: current.fixtures.map(toggle) };
+    return { ...current, duels: current.duels.map(toggle) };
+  }
+  if (action === "markNotificationsRead") return { ...current, notifications: current.notifications.map((n: any) => ({ ...n, is_read: true })) };
+  return current;
+}
 export default function Home() {
   const [data, setData] = useState<League>(fallback),
     [view, setView] = useState("home"),
@@ -148,7 +178,11 @@ export default function Home() {
     return () => clearTimeout(id);
   }, [toast]);
   const act = async (action: string, payload: any = {}) => {
-    setBusy(true);
+    const instant = ["sendMessage", "toggleReaction", "toggleMatchHype", "markNotificationsRead"].includes(action);
+    const tempId = action === "sendMessage" ? -Date.now() : 0;
+    if (instant) {
+      setData((current) => optimisticLeague(current, action, payload, tempId));
+    } else setBusy(true);
     setToast("");
     try {
       const r = await fetch("/api/league", {
@@ -161,13 +195,14 @@ export default function Home() {
       if (["login", "claim", "register", "logout"].includes(action))
         setToast(j.message || "Done");
       setAuth(null);
-      await load();
+      void load();
       return j;
     } catch (e: any) {
+      if (instant) void load();
       setToast(e.message || "Something went wrong");
       return null;
     } finally {
-      setBusy(false);
+      if (!instant) setBusy(false);
     }
   };
   const standings = useMemo(
@@ -459,7 +494,7 @@ function NetworkHome({ data, setView, act, busy }: any) {
               <div className="post-body">
                 <div className="post-head"><b>{m.sender_name}</b><span>@{m.username} · {new Date(m.created_at).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"})}</span><i /></div>
                 <p>{m.content}</p>
-                <div className="post-actions"><button className={m.reacted_by_me ? "reacted" : ""} onClick={() => act("toggleReaction", { messageId: m.id })}><Heart /> {m.reaction_count || "React"}</button><button onClick={() => setView("chat")}><MessageSquare /> Reply</button><span className="delivered"><Check /> Delivered</span></div>
+                <div className="post-actions"><button disabled={m.optimistic} className={m.reacted_by_me ? "reacted" : ""} onClick={() => act("toggleReaction", { messageId: m.id })}><Heart /> {m.reaction_count || "React"}</button><button onClick={() => setView("chat")}><MessageSquare /> Reply</button><span className={`delivered ${m.optimistic ? "syncing" : ""}`}><Check /> {m.optimistic ? "Sending" : "Delivered"}</span></div>
               </div>
             </article>
           )) : <LeaguePost data={data} setView={setView} />}
@@ -1003,16 +1038,15 @@ function ArenaList({ fixtures, data, act }: any) {
 }
 function Chat({ data, act, busy }: any) {
   const [channel, setChannel] = useState("public"),
-    [message, setMessage] = useState(""),
-    [sending, setSending] = useState(false);
+    [message, setMessage] = useState("");
+  const conversation = useRef<HTMLDivElement>(null);
   const list = data.messages.filter((m: any) => m.channel === channel);
-  const send = async () => {
+  useEffect(() => { conversation.current?.scrollTo({ top: conversation.current.scrollHeight, behavior: "smooth" }); }, [list.length, channel]);
+  const send = () => {
     if (message.trim()) {
-      setSending(true);
-      const result = await act("sendMessage", { channel, content: message });
-      if (!result) { setSending(false); return; }
+      const content = message;
       setMessage("");
-      setSending(false);
+      void act("sendMessage", { channel, content });
     }
   };
   return (
@@ -1039,7 +1073,7 @@ function Chat({ data, act, busy }: any) {
             <span><b>Team room</b><small>{data.me.team_id ? "Private duo channel" : "Form a duo to unlock"}</small></span>
           </button>
         </div>
-        <div className="chat-conversation">
+        <div className="chat-conversation" ref={conversation}>
           <div className="chat-day"><span>TODAY</span></div>
             {list.length ? (
               list.map((m: any) => (
@@ -1051,7 +1085,7 @@ function Chat({ data, act, busy }: any) {
                   <div className="message-wrap">
                     <div className="message-name"><b>{m.sender_name}</b><small>@{m.username}</small></div>
                     <div className="message-bubble"><p>{m.content}</p></div>
-                    <div className="message-meta"><time>{new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>{m.sender_id === data.me.id && <span><Check /> Sent</span>}<button className={m.reacted_by_me ? "reacted" : ""} onClick={() => act("toggleReaction", { messageId: m.id })}><Heart />{m.reaction_count || ""}</button></div>
+                    <div className="message-meta"><time>{new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>{m.sender_id === data.me.id && <span className={m.optimistic ? "syncing" : ""}><Check /> {m.optimistic ? "Sending" : "Sent"}</span>}<button disabled={m.optimistic} className={m.reacted_by_me ? "reacted" : ""} onClick={() => act("toggleReaction", { messageId: m.id })}><Heart />{m.reaction_count || ""}</button></div>
                   </div>
                 </article>
               ))
@@ -1078,8 +1112,8 @@ function Chat({ data, act, busy }: any) {
                   : "Message the league..."
               }
             />
-            <button className="chat-send" disabled={busy || sending || !message.trim()} onClick={send}>
-              {sending ? <span className="sending-dot" /> : <Send />}
+            <button className="chat-send" disabled={busy || !message.trim()} onClick={send}>
+              <Send />
             </button>
           </div>
       </div>

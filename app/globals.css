@@ -697,3 +697,4 @@ body{background:radial-gradient(circle at 50% -10%,#172d52 0,transparent 33%),li
 /* Real profile identity in the network header */
 .account-avatar{position:relative;display:grid;place-items:center;flex:0 0 auto}.account-avatar .avatar{border-width:1px}.account-avatar>i{position:absolute;right:-1px;bottom:0;width:9px;height:9px;border:2px solid #111a29;border-radius:50%;background:#35e39f;box-shadow:0 0 10px #35e39f}.account-name{white-space:nowrap}
 @media(max-width:900px){.account{width:43px!important;height:43px!important;border:0!important;background:transparent!important;padding:0!important}.account-name{display:none}.account-avatar .avatar{width:39px!important;height:39px!important}.account-avatar>i{width:10px;height:10px}}
+.syncing{color:#69dfff!important;animation:softSync .8s ease-in-out infinite alternate}.message-meta button:disabled,.post-actions button:disabled{opacity:.35}@keyframes softSync{to{opacity:.48}}
