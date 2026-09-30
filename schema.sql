@@ -5,6 +5,7 @@ alter table players add column if not exists bio text not null default '';
 alter table players add column if not exists avatar_data text;
 alter table players add column if not exists accent_color text not null default '#ff3347';
 alter table players add column if not exists last_seen timestamptz;
+alter table players add column if not exists verified boolean not null default false;
 create table if not exists teams(id serial primary key,name text unique,player1_id integer not null references players(id),player2_id integer not null references players(id),wins integer not null default 0,draws integer not null default 0,losses integer not null default 0,rounds_for integer not null default 0,rounds_against integer not null default 0,points integer not null default 0);
 alter table players drop constraint if exists players_team_id_fkey;
 alter table players add constraint players_team_id_fkey foreign key(team_id) references teams(id) on delete set null;
@@ -19,3 +20,8 @@ create table if not exists notifications(id serial primary key,player_id integer
 create index if not exists idx_notifications_player_created on notifications(player_id,created_at desc);
 create table if not exists activity(id serial primary key,actor_id integer references players(id),text text not null,kind text not null default 'league',created_at timestamptz not null default now());
 create table if not exists fixture_checkins(fixture_id integer not null references fixtures(id) on delete cascade,player_id integer not null references players(id) on delete cascade,created_at timestamptz not null default now(),primary key(fixture_id,player_id));
+create table if not exists individual_fixtures(id serial primary key,home_player_id integer not null references players(id),away_player_id integer not null references players(id),home_score integer,away_score integer,scheduled_at timestamptz,status text not null default 'scheduled' check(status in('scheduled','postponed','completed')),notes text not null default '',created_by integer references players(id),created_at timestamptz not null default now(),check(home_player_id<>away_player_id));
+create index if not exists idx_individual_fixtures_schedule on individual_fixtures(scheduled_at,status);
+create table if not exists community_duels(id serial primary key,challenger_id integer not null references players(id),opponent_id integer references players(id),status text not null default 'open' check(status in('open','pending','accepted','scheduling','scheduled','completed','declined','cancelled')),mode text not null default '1v1',message text not null default '',proposed_at timestamptz,proposed_by integer references players(id),scheduled_at timestamptz,challenger_score integer,opponent_score integer,created_at timestamptz not null default now(),check(opponent_id is null or challenger_id<>opponent_id));
+create index if not exists idx_community_duels_status on community_duels(status,scheduled_at,created_at desc);
+create table if not exists match_hypes(match_kind text not null check(match_kind in('individual','team','duel')),match_id integer not null,player_id integer not null references players(id) on delete cascade,created_at timestamptz not null default now(),primary key(match_kind,match_id,player_id));
