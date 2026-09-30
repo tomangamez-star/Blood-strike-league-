@@ -82,8 +82,8 @@ export async function POST(req: Request) {
       const username = String(b.username || "").trim(),
         displayName = String(b.displayName || username).trim().slice(0, 24),
         password = String(b.password || "");
-      if (!/^[A-Za-z0-9_.-]{3,20}$/.test(username))
-        return fail("Username must be 3–20 letters, numbers, dots, dashes or underscores");
+      if (Array.from(username).length < 2 || Array.from(username).length > 32 || /[\u0000-\u001f\u007f]/.test(username))
+        return fail("Enter your exact Blood Strike username (2–32 characters)");
       if (displayName.length < 2) return fail("Enter a display name");
       if (password.length < 8) return fail("Password must have at least 8 characters");
       const taken = await sql`select 1 from players where lower(username)=lower(${username})`;
