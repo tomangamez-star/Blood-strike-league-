@@ -232,8 +232,11 @@ export default function Home() {
         >
           {data.me ? (
             <>
-              <span className="online" />
-              {data.me.display_name || data.me.username}
+              <span className="account-avatar">
+                <Avatar player={data.me} size={35} />
+                <i />
+              </span>
+              <span className="account-name">{data.me.display_name || data.me.username}</span>
             </>
           ) : (
             <>
@@ -716,7 +719,7 @@ function AuthModal({ mode, setMode, players, act, busy }: any) {
             .map((x: Player) => (
               <option key={x.id}>{x.username}</option>
             ))}
-        </select> : <input value={u} maxLength={20} autoCapitalize="none" onChange={e => setU(e.target.value)} placeholder="Your exact in-game username" />}
+        </select> : <input value={u} maxLength={32} autoCapitalize="none" onChange={e => setU(e.target.value)} placeholder="Any exact in-game username — symbols allowed" />}
       </label>
       {mode === "claim" && (
         <label>
