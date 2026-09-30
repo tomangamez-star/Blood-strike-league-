@@ -29,6 +29,7 @@ for (const username of players) {
   const hash = await bcrypt.hash(code, 12);
   await sql`insert into players(username,role,claim_code_hash,claim_code) values(${username},'player',${hash},${code}) on conflict(username) do update set claim_code_hash=excluded.claim_code_hash,claim_code=excluded.claim_code`;
 }
+await sql`update players set verified=true where username in ${sql(players)}`;
 console.log(
   "League accounts ready. Player codes are available in IAlone's Admin panel.",
 );
